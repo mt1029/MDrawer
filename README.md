@@ -16,6 +16,7 @@ npm run dev                  # http://localhost:5173
 | `npm run build` | 型別檢查並打包到 `dist/` |
 | `npm run preview` | 在本機預覽打包結果 |
 | `npm run lint` | oxlint 檢查 |
+| `npm test` | 執行單元測試（Markdown 語法與 XSS 過濾） |
 | `npm run test:rls` | 用 A、B 測試帳號檢查資料隔離（見 docs/database.md） |
 
 - Supabase 設定、部署到 Vercel 與驗證：[docs/deploy.md](docs/deploy.md)

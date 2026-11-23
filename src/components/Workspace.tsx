@@ -4,6 +4,7 @@ import ConfirmDialog from './ConfirmDialog.tsx'
 import FileTree from './FileTree.tsx'
 import MoveDialog from './MoveDialog.tsx'
 import NameDialog from './NameDialog.tsx'
+import NoteEditor from './NoteEditor.tsx'
 
 const ROOT = 'root'
 const keyOf = (parentId: string | null) => parentId ?? ROOT
@@ -118,6 +119,16 @@ export default function Workspace() {
     setDialog(null)
   }
 
+  // 儲存筆記後，用資料庫回傳的最新資料（updated_at、version）更新樹狀清單
+  const replaceNode = useCallback((node: NodeMeta) => {
+    setChildrenOf((prev) => {
+      const key = keyOf(node.parent_id)
+      const list = prev[key]
+      if (!list) return prev
+      return { ...prev, [key]: list.map((item) => (item.id === node.id ? node : item)) }
+    })
+  }, [])
+
   const closeDialog = () => setDialog(null)
 
   return (
@@ -184,7 +195,7 @@ export default function Workspace() {
             <h2 className="detail-title">{selected.name}</h2>
             <p className="detail-meta">最後修改：{formatTime(selected.updated_at)}</p>
             {selected.type === 'note' ? (
-              <p className="detail-placeholder">筆記內容的編輯與預覽會在下一步加入。</p>
+              <NoteEditor key={selected.id} noteId={selected.id} onSaved={replaceNode} />
             ) : (
               <p className="detail-placeholder">
                 {childrenOf[selected.id] ? `裡面有 ${childrenOf[selected.id].length} 個項目。` : ''}
