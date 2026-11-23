@@ -329,6 +329,20 @@ button.link {
   color: var(--error);
 }
 
+.image-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.image-status.done {
+  color: var(--notice);
+}
+
+.image-status.error {
+  color: var(--error);
+}
+
 .editor-panes {
   flex: 1;
   display: grid;
@@ -394,6 +408,24 @@ button.link {
 .markdown img {
   max-width: 100%;
   height: auto;
+}
+
+/* 圖片網址還在取得中，或圖片不存在時的佔位框 */
+.markdown img.img-loading,
+.markdown img.img-missing {
+  display: inline-block;
+  width: 12rem;
+  height: 6rem;
+  border-radius: 6px;
+  vertical-align: middle;
+}
+
+.markdown img.img-loading {
+  background: var(--hover-bg);
+}
+
+.markdown img.img-missing {
+  border: 1px dashed var(--border);
 }
 
 .markdown :is(ul, ol) {

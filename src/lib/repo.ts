@@ -29,6 +29,10 @@ export interface Repo {
   moveNode(id: string, newParentId: string | null): Promise<NodeMeta>
   /** 標記刪除這個項目，資料夾會連同所有子孫一起標記 */
   deleteNode(id: string): Promise<void>
+  /** 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片 id。筆記裡寫成 ![](img:<id>) */
+  uploadImage(image: Blob): Promise<string>
+  /** 取得圖片的短效網址。找不到或沒有權限的圖片回傳 null */
+  getImageUrls(ids: string[]): Promise<Record<string, string | null>>
 }
 
 export const repo: Repo = onlineRepo

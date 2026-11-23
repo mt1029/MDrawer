@@ -12,6 +12,7 @@
 | 11/23 | nodes 表、觸發器、RLS | 照 spec 第 9 節做下一步；SQL 交給我自己在 SQL Editor 執行，並提供 A、B 帳號的隔離測試 | AI 先審查 spec 第 5 節的 SQL，提出 6 項修改讓我選（見錯誤清單）；產出 `supabase/migrations/20261123000000_create_nodes.sql`、`scripts/rls-test.mjs`（`npm run test:rls`）、`docs/database.md`；確認後把 spec 第 5 節的欄位說明與 SQL 同步成新版 | 6 項修改全部採用，包含同層名稱不分大小寫（避免 ZIP 撞名）。 | AI 端：在本機用 PGlite 模擬 Supabase 的 auth 與角色，執行同一份 SQL，23 項檢查全過（觸發器、名稱限制、A/B 隔離、未登入被拒、刪帳號連帶刪資料）。我在真實 Supabase 執行 SQL 與 `npm run test:rls`，全部通過 |
 | 11/23 | repo 介面與資料夾樹 | 照 spec 第 9 節，一次只做一個功能：`repo` 介面、`repo.online.ts`、資料夾與筆記的建立／改名／移動／刪除；筆記內容的 Markdown 編輯留到下一步 | `src/lib/nodes.ts`（型別、錯誤、名稱規則）、`src/lib/repo.ts`、`src/lib/repo.online.ts`；畫面元件 `Workspace`、`FileTree`、`NameDialog`、`MoveDialog`、`ConfirmDialog` | （待填） | AI 端：build、lint 通過。另外用記憶體版的假 repo 在瀏覽器實測：建立 5 層資料夾與筆記、重名與 `../` 的錯誤訊息、改名、移動、資料夾無法移進自己底下、刪除資料夾時子孫一併標記刪除、手機寬度沒有水平捲動。真實 Supabase 上的操作：（待填） |
 | 11/23 | Markdown 編輯與預覽、XSS 測試 | 一次只做這個功能：markdown-it（`html: false`）＋ DOMPurify、即時預覽、自動儲存，並寫 XSS 測試 | `src/lib/markdown.ts`、`src/lib/markdown.test.ts`（`npm test`）、`src/components/NoteEditor.tsx` | （待填） | AI 端：30 項測試全過（22 種 XSS 寫法、8 項語法）。為了確認測試有效，暫時拿掉防護再跑：兩道都拿掉時 12 項失敗；只留 `html: false` 時 XSS 項目全擋；只留 DOMPurify 時危險屬性被移除，但 `<svg>`、`<form>` 等標籤會出現，所以兩道都要留。瀏覽器用假 repo 實測：自動儲存、切換筆記前打的字會存下、儲存失敗會顯示重試、手機版切換編輯／預覽、XSS 字串只顯示為文字且沒有執行。真實 Supabase：（待填） |
+| 11/23 | 貼圖壓縮上傳與 CSP | 一次只做貼圖：Storage SQL 先審查再給我執行，Canvas 壓縮成 WebP，Ctrl+V 貼圖、顯示壓縮前後大小，並加上 CSP | `supabase/migrations/20261123010000_create_images_bucket.sql`、`src/lib/image.ts`、`src/lib/useImageUrls.ts`；`repo` 加上 `uploadImage`、`getImageUrls`；`markdown.ts` 在 DOMPurify 前把 `img:<id>` 換成簽名網址；`vite.config.ts` 打包時加入 CSP；確認後把 spec 第 3、4、5、7、8 節同步成實際做法 | 選擇 Safari 改存 JPEG、Storage 政策限制完整路徑、改用 `(select auth.uid())`。（其餘待填） | AI 端：Storage SQL 在 PGlite 模擬 14 項全過；單元測試 39 項全過。瀏覽器用正式版打包（CSP 生效）加假資料層實測：1.1 MB 截圖 → 23 KB WebP 並顯示；52.5 MB 雜訊圖 → 1.7 MB；模擬 Safari 改存 JPEG，透明處補白；外部圖片被 CSP 擋下；沒有其他 CSP 違規。我在真實 Supabase 執行 SQL 並實測貼圖，沒有問題 |
 
 ## 錯誤清單
 
@@ -21,7 +22,7 @@ AI 給錯或沒想到的地方逐項記下，包含怎麼發現、怎麼修。�
 | --- | --- | --- | --- |
 | 11/23 | v2 的圖片格式 `img:<uuid>` 若在 DOMPurify 之後才替換，`src` 會被 DOMPurify 移除，預覽看不到圖 | 整理規格時對照 DOMPurify 預設允許的網址格式 | 規格改為先換成簽名網址，再交給 DOMPurify |
 | 11/23 | 離線 L1 宣稱可閱讀全部筆記，但圖片用簽名網址，離線時無法顯示，規格沒寫到 | 同上，逐節檢查離線情境 | L1 改為顯示「離線時無法載入圖片」，並列入已知限制 |
-| 11/23 | 規格寫「前端只用 anon key」，但 Supabase 已改推 publishable key（`sb_publishable_` 開頭），舊的 anon／service_role key 預計 2026 年底淘汰 | 實作登入時查 Supabase 官方文件 | 程式改用 `VITE_SUPABASE_PUBLISHABLE_KEY`；規格第 7 節用語待更新 |
+| 11/23 | 規格寫「前端只用 anon key」，但 Supabase 已改推 publishable key（`sb_publishable_` 開頭），舊的 anon／service_role key 預計 2026 年底淘汰 | 實作登入時查 Supabase 官方文件 | 程式改用 `VITE_SUPABASE_PUBLISHABLE_KEY`；做完貼圖後一併同步 spec 第 7 節 |
 | 11/23 | 規格把「關閉註冊需信箱驗證」寫成 demo 可選設定，但 Supabase 內建寄信服務只寄給專案團隊成員、每小時約 2 封，不關閉就無法用一般信箱註冊 | 同上，查 Supabase 寄信限制 | 部署說明改成建立專案時就關閉 Confirm email；要開啟需先設定自訂 SMTP |
 | 11/23 | AI 檢查金鑰外洩時，在沒有環境變數的情況下 build，再搜尋打包檔有沒有 `sb_secret`，回報「沒有」。但沒設環境變數時 `supabase.ts` 一定會丟錯，打包工具把後面用不到的 supabase-js 整段刪掉（打包檔 230 KB，正常是 441 KB），等於掃了一個沒有套件程式的檔案。另外，搜尋字串本身也不對：supabase-js 裡本來就有 `` startsWith(`sb_secret_`) `` 用來判斷金鑰格式 | 部署後我自己在 Vercel 網址的 js 搜尋 `sb_secret_`，找到 1 筆，跟 AI 說的「應該找不到」不符 | 確認那筆是 supabase-js 的格式判斷，不是金鑰。檢查方式改成在有 `.env.local` 的情況下 build，搜尋 `sb_secret_` 後面接 10 個以上字元的字串與 `service_role`，結果都是 0 筆；docs/deploy.md G-3 已更新 |
 | 11/23 | spec 的 SQL 沒有 `grant`。2026/5/30 之後建立的 Supabase 專案，新資料表不會自動開放給 Data API，照原版執行後前端會被拒絕存取 | 做第 2 步時查 Supabase changelog | SQL 加上 `grant select, insert, update, delete ... to authenticated`，並撤銷 `anon` 的權限 |
@@ -31,6 +32,9 @@ AI 給錯或沒想到的地方逐項記下，包含怎麼發現、怎麼修。�
 | 11/23 | 同層名稱的唯一索引區分大小寫，`Notes` 與 `notes` 可並存，但 ZIP 在 macOS、Windows 解壓時會被當成同一個資料夾 | 對照 ZIP 匯出的驗收條件 | 唯一索引改用 `lower(name)` |
 | 11/23 | 觸發器用 `now()`，它是交易開始的時間，不是 commit 的時間。L2 拉取用「`updated_at >=` 上次看到的值」，晚 commit 但時間較早的修改可能永遠被漏掉 | 審查觸發器時對照第 6 節的拉取規則 | 這一步先不改。L2 實作拉取時，改成從「上次的值減幾秒」開始抓，再用 `id` + `version` 去重 |
 | 11/23 | AI 第一版的手機版面：「登出」按鈕被擠成直排，整頁有 17px 的水平捲動（grid 欄位被信箱文字撐開） | AI 在瀏覽器用手機尺寸實測時發現 | 欄位改成 `minmax(0, 1fr)`、按鈕不換行；修正後頁面寬度等於畫面寬度 |
+| 11/23 | spec 假設所有瀏覽器都能用 Canvas 輸出 WebP，但 Safari（含所有 iPhone 瀏覽器）不支援，而且不會報錯，會默默改成 PNG；照 spec 只收 WebP 的話，iPhone 完全不能貼圖 | 實作前查 caniuse 與 WebKit bug | 不支援時改存 JPEG（透明處補白），bucket 同時接受兩種格式，路徑不加副檔名 |
+| 11/23 | spec 說貼圖預覽用 `blob:` 網址（CSP 也因此開放 `blob:`），但 DOMPurify 預設會移除 `blob:` 網址，AI 第一版照做後預覽一片空白 | AI 在瀏覽器實測時發現 `<img>` 沒有 `src`，再用 jsdom 確認 DOMPurify 的行為 | 上傳後直接取簽名網址顯示；CSP 的 `img-src` 拿掉 `blob:`，變得更嚴格 |
+| 11/23 | spec 的 Storage 政策只檢查第一層資料夾是自己的 id，檔名可以隨便取，與「檔名一律 UUID」不符 | 審查 Storage SQL | 政策改用正規表示式限制完整路徑為「自己的 id/UUID」，PGlite 測試擋下 `../`、副檔名、多層資料夾等 |
 
 ## 每週回顧
 

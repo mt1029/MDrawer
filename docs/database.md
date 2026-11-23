@@ -79,3 +79,45 @@ npm run test:rls
 | `A 帳號登入失敗：Invalid login credentials` | `.env.test.local` 的信箱或密碼打錯 |
 | `node: .env.test.local: not found` | 還沒建立 `.env.test.local`（見 B） |
 | 想把表整個砍掉重建 | SQL Editor 執行 `drop table public.nodes; drop function public.nodes_touch();`，**會刪掉所有筆記**，只在還沒有正式資料時做 |
+
+---
+
+# 圖片儲存（第 4 步：貼圖）
+
+SQL 在 [supabase/migrations/20261123010000_create_images_bucket.sql](../supabase/migrations/20261123010000_create_images_bucket.sql)。與 spec 第 5 節的差異：
+
+| 修改 | 原因 |
+| --- | --- |
+| bucket 同時接受 `image/webp` 與 `image/jpeg` | Safari（含所有 iPhone 瀏覽器）的 Canvas 無法輸出 WebP，改存 JPEG |
+| 路徑為「使用者 id/圖片 id」，不加副檔名 | 同一個 `img:<id>` 可能是 WebP 或 JPEG，格式記在 Content-Type |
+| 政策用正規表示式限制完整路徑 | spec 寫「檔名一律 UUID」，原版政策只檢查第一層資料夾 |
+| 改用 `(select auth.uid())` | 與 nodes 表相同的效能寫法 |
+
+## A. 執行 SQL
+
+1. SQL Editor → New query → 貼上整份 `.sql` → Run。
+2. 確認：
+   - **Storage** 出現 `images` bucket，標示為 Private。
+   - bucket 設定裡，檔案大小上限 2 MB，允許的類型為 `image/webp`、`image/jpeg`。
+   - **Storage → Policies** 裡，`images` 底下有 `own_images`。
+
+## B. 驗證
+
+| # | 操作 | 預期結果 |
+| --- | --- | --- |
+| 1 | 用 A 帳號開一篇筆記，截圖後在編輯區按 Ctrl+V（Mac 為 Cmd+V） | 編輯區插入 `![](img:…)`，上方顯示「原始 … → 壓縮後 …」，右邊預覽顯示圖片 |
+| 2 | 按「插入圖片」選一張手機或相機照片 | 同上，大圖會被縮小 |
+| 3 | 重新整理頁面 | 圖片仍正常顯示 |
+| 4 | Storage → images → A 的 id 資料夾 | 看得到剛上傳的檔案，類型為 `image/webp`（Safari 為 `image/jpeg`） |
+| 5 | 複製 A 筆記裡的 `![](img:…)`，貼到 B 帳號的筆記 | B 的預覽只顯示虛線框，看不到圖片 |
+| 6 | 用 Safari 貼圖 | 正常插入，狀態列顯示 JPEG |
+| 7 | 在筆記裡寫 `![](https://example.com/a.png)`，到 Vercel 網址看預覽 | 圖片不顯示，Console 有 Content-Security-Policy 的訊息（本機 `npm run dev` 沒有 CSP，所以會顯示） |
+
+## 常見問題
+
+| 狀況 | 原因與處理 |
+| --- | --- |
+| 「找不到 images bucket」 | 圖片的 SQL 還沒執行 |
+| 「沒有權限上傳圖片」 | 政策沒建立成功，或登入已過期，重新登入後再試 |
+| 執行 SQL 出現 `duplicate key value violates unique constraint "buckets_pkey"` | bucket 已經存在，可能在 Dashboard 手動建過。到 Storage 刪掉 `images` bucket 後重跑，或只執行 `create policy` 那段 |
+| Vercel 上整個網站壞掉，Console 一堆 Content-Security-Policy 錯誤 | `VITE_SUPABASE_URL` 與實際專案不符，CSP 會擋掉 Supabase 的連線。確認環境變數後 Redeploy |

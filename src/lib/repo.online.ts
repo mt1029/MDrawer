@@ -198,6 +198,89 @@ async function deleteNode(id: string): Promise<void> {
   }
 }
 
+// ── 圖片（Storage）──────────────────────────────────────────
+// 路徑為「使用者 id/圖片 id」，不加副檔名，格式記在 Content-Type（WebP 或 JPEG）
+
+const IMAGE_BUCKET = 'images'
+// 簽名網址的有效時間（秒）。快取到期前 5 分鐘就重新取得
+const SIGNED_URL_TTL = 60 * 60
+const SIGNED_URL_MARGIN_MS = 5 * 60 * 1000
+
+// key 用完整路徑（含使用者 id），換帳號登入時不會拿到上一個帳號的網址
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>()
+
+async function currentUserId(): Promise<string> {
+  const { data } = await supabase.auth.getSession()
+  const id = data.session?.user.id
+  if (!id) throw new RepoError('unknown', '登入狀態已失效，請重新登入。')
+  return id
+}
+
+function toUploadError(error: { message: string; status?: number; statusCode?: string }): RepoError {
+  const message = error.message.toLowerCase()
+  const status = error.status ?? Number(error.statusCode)
+  if (!status) return new RepoError('network', '無法連線到伺服器，圖片沒有上傳。')
+  if (status === 413 || message.includes('size')) {
+    return new RepoError('unknown', '圖片超過 2 MB 上限。')
+  }
+  if (status === 415 || message.includes('mime')) {
+    return new RepoError('unknown', '圖片格式不被接受（只接受 WebP、JPEG）。')
+  }
+  if (message.includes('bucket not found')) {
+    return new RepoError('unknown', '找不到 images bucket，請先在 Supabase 執行建立圖片儲存的 SQL。')
+  }
+  if (status === 403 || message.includes('row-level security') || message.includes('unauthorized')) {
+    return new RepoError('unknown', '沒有權限上傳圖片，請重新登入後再試。')
+  }
+  return new RepoError('unknown', `圖片上傳失敗：${error.message}`)
+}
+
+async function uploadImage(image: Blob): Promise<string> {
+  if (!navigator.onLine) throw new RepoError('network', '離線時無法上傳圖片。')
+  const userId = await currentUserId()
+  const id = crypto.randomUUID()
+  const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(`${userId}/${id}`, image, {
+    contentType: image.type,
+    // 圖片 id 不會重複使用，內容永遠不變，可以長期快取
+    cacheControl: '31536000',
+    upsert: false,
+  })
+  if (error) throw toUploadError(error)
+  return id
+}
+
+async function getImageUrls(ids: string[]): Promise<Record<string, string | null>> {
+  const result: Record<string, string | null> = {}
+  if (ids.length === 0) return result
+
+  const userId = await currentUserId()
+  const now = Date.now()
+  const missing: string[] = []
+  for (const id of ids) {
+    const cached = signedUrlCache.get(`${userId}/${id}`)
+    if (cached && cached.expiresAt - SIGNED_URL_MARGIN_MS > now) result[id] = cached.url
+    else missing.push(id)
+  }
+  if (missing.length === 0) return result
+
+  const paths = missing.map((id) => `${userId}/${id}`)
+  const { data, error } = await supabase.storage.from(IMAGE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL)
+  if (error) {
+    throw new RepoError(error.status ? 'unknown' : 'network', '無法取得圖片網址，請確認網路後重新整理。')
+  }
+  // 回傳順序與傳入的路徑相同
+  missing.forEach((id, index) => {
+    const url = data[index]?.signedUrl
+    if (url && !data[index].error) {
+      result[id] = url
+      signedUrlCache.set(paths[index], { url, expiresAt: now + SIGNED_URL_TTL * 1000 })
+    } else {
+      result[id] = null
+    }
+  })
+  return result
+}
+
 export const onlineRepo: Repo = {
   listChildren,
   getNode,
@@ -205,4 +288,6 @@ export const onlineRepo: Repo = {
   updateNode,
   moveNode,
   deleteNode,
+  uploadImage,
+  getImageUrls,
 }

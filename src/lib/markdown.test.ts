@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { renderMarkdown } from './markdown.ts'
+import { extractImageIds, renderMarkdown, type ImageResolver } from './markdown.ts'
 
 /** 把輸出的 HTML 解析成 DOM（不會執行任何 script），方便檢查 */
-function render(source: string): HTMLElement {
-  const doc = new DOMParser().parseFromString(`<body>${renderMarkdown(source)}</body>`, 'text/html')
+function render(source: string, resolveImage?: ImageResolver): HTMLElement {
+  const doc = new DOMParser().parseFromString(`<body>${renderMarkdown(source, resolveImage)}</body>`, 'text/html')
   return doc.body
 }
 
@@ -118,9 +118,47 @@ describe('Markdown 功能：spec 第 3 節要求的語法', () => {
   it('純文字網址自動變成連結', () => {
     expect(render('看 https://example.com').querySelector('a')?.getAttribute('href')).toBe('https://example.com')
   })
+})
 
-  it('目前 img: 網址會被 DOMPurify 移除（之後的貼圖功能要在過濾前換成簽名網址）', () => {
-    const img = render('![](img:123e4567-e89b-12d3-a456-426614174000)').querySelector('img')
+describe('貼圖：img:<id> 在 DOMPurify 之前換成網址', () => {
+  const ID = '123e4567-e89b-12d3-a456-426614174000'
+  const SIGNED = 'https://abc.supabase.co/storage/v1/object/sign/images/u/x?token=t'
+
+  it('換成簽名網址，而且沒有被 DOMPurify 移除', () => {
+    const img = render(`![](img:${ID})`, (id) => (id === ID ? SIGNED : undefined)).querySelector('img')
+    expect(img?.getAttribute('src')).toBe(SIGNED)
+  })
+
+  it('網址還在取得中：沒有 src，標上 img-loading', () => {
+    const img = render(`![](img:${ID})`, () => undefined).querySelector('img')
     expect(img?.hasAttribute('src')).toBe(false)
+    expect(img?.className).toBe('img-loading')
+  })
+
+  it('圖片不存在：沒有 src，標上 img-missing', () => {
+    const img = render(`![](img:${ID})`, () => null).querySelector('img')
+    expect(img?.hasAttribute('src')).toBe(false)
+    expect(img?.className).toBe('img-missing')
+  })
+
+  it('id 不是 UUID：不查詢，直接標上 img-missing', () => {
+    let asked = false
+    const img = render('![](img:../../etc/passwd)', () => {
+      asked = true
+      return SIGNED
+    }).querySelector('img')
+    expect(asked).toBe(false)
+    expect(img?.hasAttribute('src')).toBe(false)
+  })
+
+  it('換上的網址如果是 javascript:，仍會被 DOMPurify 擋下', () => {
+    const body = render(`![](img:${ID})`, () => 'javascript:alert(1)')
+    expectSafe(body)
+  })
+
+  it('找出筆記裡的圖片 id，去掉重複並忽略格式不對的', () => {
+    const other = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const source = `![](img:${ID})\n![說明](img:${other})\n![](img:${ID})\n![](img:not-a-uuid)`
+    expect(extractImageIds(source)).toEqual([ID, other])
   })
 })

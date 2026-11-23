@@ -1,12 +1,17 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { ImageError, compressImage, formatBytes, type ImageFormat } from '../lib/image.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
 import { RepoError, repo, type NodeMeta } from '../lib/repo.ts'
+import { useImageUrls } from '../lib/useImageUrls.ts'
 
 // 停止輸入多久後自動儲存
 const AUTOSAVE_DELAY_MS = 1000
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error'
 type View = 'edit' | 'preview'
+type ImageStatus = { kind: 'busy' | 'done' | 'error'; text: string }
+
+const FORMAT_LABEL: Record<ImageFormat, string> = { 'image/webp': 'WebP', 'image/jpeg': 'JPEG' }
 
 const SAVE_LABEL: Record<SaveState, string> = {
   saved: '已儲存',
@@ -28,6 +33,9 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [view, setView] = useState<View>('edit')
+  const [imageStatus, setImageStatus] = useState<ImageStatus | null>(null)
+  const textarea = useRef<HTMLTextAreaElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   // 用 ref 保存最新值，讓計時器與卸載時的儲存拿得到
   const latest = useRef('')
@@ -113,9 +121,63 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
     timer.current = window.setTimeout(() => void save(), AUTOSAVE_DELAY_MS)
   }
 
+  /** 在游標位置插入文字（有選取時取代選取的文字） */
+  function insertAtCursor(text: string) {
+    const value = latest.current
+    const start = textarea.current?.selectionStart ?? value.length
+    const end = textarea.current?.selectionEnd ?? value.length
+    handleChange(value.slice(0, start) + text + value.slice(end))
+    requestAnimationFrame(() => textarea.current?.setSelectionRange(start + text.length, start + text.length))
+  }
+
+  /** 把佔位文字換掉；佔位文字已被使用者刪掉時回傳 false */
+  function replacePlaceholder(placeholder: string, replacement: string): boolean {
+    if (!latest.current.includes(placeholder)) return false
+    handleChange(latest.current.replace(placeholder, () => replacement))
+    return true
+  }
+
+  /** 壓縮 → 上傳 → 把佔位文字換成 ![](img:<id>)，並顯示壓縮前後大小 */
+  async function insertImages(files: File[]) {
+    for (const file of files) {
+      const placeholder = `![上傳中…](uploading:${crypto.randomUUID()})`
+      insertAtCursor(placeholder)
+      setImageStatus({ kind: 'busy', text: `壓縮圖片中（原始 ${formatBytes(file.size)}）…` })
+      try {
+        const image = await compressImage(file)
+        setImageStatus({ kind: 'busy', text: `上傳中（${formatBytes(image.blob.size)}）…` })
+        const id = await repo.uploadImage(image.blob)
+        const reduced = Math.round((1 - image.blob.size / image.originalBytes) * 100)
+        const sizes =
+          `原始 ${formatBytes(image.originalBytes)} → 壓縮後 ${formatBytes(image.blob.size)}` +
+          `（${FORMAT_LABEL[image.format]}，${reduced > 0 ? `減少 ${reduced}%` : '沒有變小'}）`
+        setImageStatus(
+          replacePlaceholder(placeholder, `![](img:${id})`)
+            ? { kind: 'done', text: `已插入圖片：${sizes}` }
+            : { kind: 'error', text: `圖片已上傳，但插入位置的文字已被刪除，所以沒有插入。${sizes}` },
+        )
+      } catch (err) {
+        replacePlaceholder(placeholder, '')
+        setImageStatus({
+          kind: 'error',
+          text: err instanceof ImageError || err instanceof RepoError ? err.message : '插入圖片失敗，請再試一次。',
+        })
+      }
+    }
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
+    // 沒有圖片，或同時有文字（例如從網頁複製一段圖文）時，照一般貼上處理
+    if (images.length === 0 || event.clipboardData.getData('text/plain')) return
+    event.preventDefault()
+    void insertImages(images)
+  }
+
   // 輸入時先讓編輯框更新，預覽稍後跟上，長筆記也不會卡
   const deferred = useDeferredValue(content ?? '')
-  const previewHtml = useMemo(() => renderMarkdown(deferred), [deferred])
+  const imageUrls = useImageUrls(deferred)
+  const previewHtml = useMemo(() => renderMarkdown(deferred, (id) => imageUrls[id]), [deferred, imageUrls])
 
   if (loadError) return <p className="message error">{loadError}</p>
   if (content === null) return <p className="detail-placeholder">載入中…</p>
@@ -141,6 +203,21 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
             預覽
           </button>
         </div>
+        <button type="button" className="secondary" onClick={() => fileInput.current?.click()}>
+          插入圖片
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? [])
+            e.target.value = ''
+            void insertImages(files)
+          }}
+        />
         <span className={`save-state ${saveState}`} role="status">
           {SAVE_LABEL[saveState]}
         </span>
@@ -155,14 +232,21 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
           {saveError}
         </p>
       )}
+      {imageStatus && (
+        <p className={`image-status ${imageStatus.kind}`} role="status">
+          {imageStatus.text}
+        </p>
+      )}
 
       <div className="editor-panes">
         <textarea
+          ref={textarea}
           className="editor-input"
           aria-label="Markdown 內容"
           value={content}
           onChange={(e) => handleChange(e.target.value)}
           onBlur={() => void save()}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             // Ctrl+S / Cmd+S 立即儲存，不跳出瀏覽器的另存新檔
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {

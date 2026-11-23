@@ -12,6 +12,47 @@ const md = new MarkdownIt({
   typographer: false,
 })
 
+/** 筆記裡的圖片寫成 ![](img:<圖片 id>)，id 為小寫 UUID */
+export const IMAGE_PREFIX = 'img:'
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+const IMAGE_ID = new RegExp(`^${UUID}$`)
+const IMAGE_REF = new RegExp(`${IMAGE_PREFIX}(${UUID})`, 'g')
+
+/**
+ * 把圖片 id 換成可顯示的網址。
+ * - string：網址
+ * - null：圖片不存在或無法取得
+ * - undefined：還在取得中
+ */
+export type ImageResolver = (id: string) => string | null | undefined
+
+// 用 type 而不是 interface，才能當成 markdown-it 的 env（需要索引簽章）
+type RenderEnv = {
+  resolveImage?: ImageResolver
+}
+
+// 在 markdown-it 產生 <img> 時就把 img:<id> 換成網址。
+// 這一步一定要在 DOMPurify 之前，否則 DOMPurify 會把不認得的 img: 網址移除（spec 第 5 節）。
+// 換上的網址之後仍會經過 DOMPurify，就算網址有問題也會被擋下。
+const renderImage = md.renderer.rules.image!
+md.renderer.rules.image = (tokens, index, options, env, self) => {
+  const token = tokens[index]
+  const src = String(token.attrGet('src') ?? '')
+  if (src.startsWith(IMAGE_PREFIX)) {
+    const id = src.slice(IMAGE_PREFIX.length)
+    const resolve = (env as RenderEnv | undefined)?.resolveImage
+    const url = IMAGE_ID.test(id) ? resolve?.(id) : null
+    if (url) {
+      token.attrSet('src', url)
+    } else {
+      // 取得中或取不到：拿掉 src，加上 class 讓畫面顯示佔位框
+      token.attrs = (token.attrs ?? []).filter(([name]) => name !== 'src')
+      token.attrJoin('class', url === null ? 'img-missing' : 'img-loading')
+    }
+  }
+  return renderImage(tokens, index, options, env, self)
+}
+
 // 外部連結在新分頁開啟，並切斷新分頁對本頁的存取（window.opener）
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName === 'A' && node.getAttribute('href')) {
@@ -21,9 +62,13 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
 })
 
 /** 把 Markdown 轉成已過濾、可以安全放進 innerHTML 的 HTML */
-export function renderMarkdown(source: string): string {
-  const html = md.render(source)
-  // 之後做貼圖時，img:<uuid> 換成簽名網址的步驟必須放在這裡（DOMPurify 之前），
-  // 否則 DOMPurify 會把不認得的 img: 網址移除。見 spec 第 5 節「圖片儲存」。
+export function renderMarkdown(source: string, resolveImage?: ImageResolver): string {
+  const env: RenderEnv = { resolveImage }
+  const html = md.render(source, env)
   return DOMPurify.sanitize(html)
+}
+
+/** 找出筆記裡引用的所有圖片 id（不重複） */
+export function extractImageIds(source: string): string[] {
+  return [...new Set(Array.from(source.matchAll(IMAGE_REF), (match) => match[1]))]
 }
