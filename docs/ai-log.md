@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 11/22 | 規格審查 | 請 AI 檢視規格書 v1 是否可行 | 指出同步風險與 6 個技術細節問題 | 採納降級設計，改寫成 v2（差異見附錄） | 與 v1 逐項比較，列出差異表 |
 | 11/23 | 規格整理與提案簡述 | 請 AI 整理規格書、刪除多餘標語，依指定格式寫提案簡述並想專題名稱 | 重排章節、合併重複內容、補上兩項遺漏（見錯誤清單）、簡述與名稱候選 | 沒怎麼改就只是改了一些用語之類的 | 看過一遍 |
-| 11/23 | 建立專案與登入 | 先讀 spec 與 CLAUDE.md；只用 Vite + React + TS 建專案、接 Supabase 註冊／登入／登出、說明 Vercel 部署，不做其他功能 | 專案骨架、`src/lib/supabase.ts`、`src/lib/useSession.ts`、`src/components/AuthForm.tsx`、`docs/deploy.md`；依 spec 第 12 節範本建立 `CLAUDE.md` | （待填） | AI 端：`npm run build`、`npm run lint` 通過；未接後端時登入表單與「無法連線」訊息正常；打包檔不含 `sb_secret`、`service_role`。真實註冊／登入／登出待建好 Supabase 專案後驗證（見 docs/deploy.md C、G） |
+| 11/23 | 建立專案與登入 | 先讀 spec 與 CLAUDE.md；只用 Vite + React + TS 建專案、接 Supabase 註冊／登入／登出、說明 Vercel 部署，不做其他功能 | 專案骨架、`src/lib/supabase.ts`、`src/lib/useSession.ts`、`src/components/AuthForm.tsx`、`docs/deploy.md`；依 spec 第 12 節範本建立 `CLAUDE.md` | （待填） | AI 端：`npm run build`、`npm run lint` 通過；未接後端時登入表單與「無法連線」訊息正常；真實註冊／登入／登出待建好 Supabase 專案後驗證（見 docs/deploy.md C、G）。原本宣稱「打包檔不含 `sb_secret`」，這個檢查無效，見錯誤清單 |
 
 ## 錯誤清單
 
@@ -20,6 +20,7 @@ AI 給錯或沒想到的地方逐項記下，包含怎麼發現、怎麼修。�
 | 11/23 | 離線 L1 宣稱可閱讀全部筆記，但圖片用簽名網址，離線時無法顯示，規格沒寫到 | 同上，逐節檢查離線情境 | L1 改為顯示「離線時無法載入圖片」，並列入已知限制 |
 | 11/23 | 規格寫「前端只用 anon key」，但 Supabase 已改推 publishable key（`sb_publishable_` 開頭），舊的 anon／service_role key 預計 2026 年底淘汰 | 實作登入時查 Supabase 官方文件 | 程式改用 `VITE_SUPABASE_PUBLISHABLE_KEY`；規格第 7 節用語待更新 |
 | 11/23 | 規格把「關閉註冊需信箱驗證」寫成 demo 可選設定，但 Supabase 內建寄信服務只寄給專案團隊成員、每小時約 2 封，不關閉就無法用一般信箱註冊 | 同上，查 Supabase 寄信限制 | 部署說明改成建立專案時就關閉 Confirm email；要開啟需先設定自訂 SMTP |
+| 11/23 | AI 檢查金鑰外洩時，在沒有環境變數的情況下 build，再搜尋打包檔有沒有 `sb_secret`，回報「沒有」。但沒設環境變數時 `supabase.ts` 一定會丟錯，打包工具把後面用不到的 supabase-js 整段刪掉（打包檔 230 KB，正常是 441 KB），等於掃了一個沒有套件程式的檔案。另外，搜尋字串本身也不對：supabase-js 裡本來就有 `` startsWith(`sb_secret_`) `` 用來判斷金鑰格式 | 部署後我自己在 Vercel 網址的 js 搜尋 `sb_secret_`，找到 1 筆，跟 AI 說的「應該找不到」不符 | 確認那筆是 supabase-js 的格式判斷，不是金鑰。檢查方式改成在有 `.env.local` 的情況下 build，搜尋 `sb_secret_` 後面接 10 個以上字元的字串與 `service_role`，結果都是 0 筆；docs/deploy.md G-3 已更新 |
 
 ## 每週回顧
 

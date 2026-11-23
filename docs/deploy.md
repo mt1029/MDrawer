@@ -113,7 +113,17 @@ Authentication → URL Configuration：
 2. 用手機開同一個網址，用 A 帳號登入，確認能登入（版面不跑掉）。
 3. 金鑰檢查：
    - GitHub 上的 repository 看不到 `.env.local`。
-   - 在網站按 F12 → Sources（或 Network）打開 `assets/index-*.js`，搜尋 `sb_secret` 與 `service_role`，應該都找不到。搜得到 `sb_publishable_` 是正常的，這把金鑰本來就是給前端用，資料安全靠 RLS 把關（下一步建表時設定）。
+   - 在網站按 F12 → Sources（或直接開 `https://<專案名>.vercel.app/assets/index-*.js`），搜尋下面幾個字：
+     - `service_role`：應該找不到。
+     - `sb_secret_`：會找到 **1 筆** `` startsWith(`sb_secret_`) ``，這是 supabase-js 判斷金鑰格式的程式碼，不是金鑰。真的 secret key 會是 `sb_secret_` 後面接一長串亂碼；只要 `sb_secret_` 後面緊接著引號或反引號，就沒有問題。
+     - `sb_publishable_`：找得到是正常的。這把金鑰本來就是給前端用的，資料安全由 RLS 把關（下一步建表時設定）。
+   - 也可以在本機檢查（要先有 `.env.local`，打包結果才會跟線上一樣）：
+
+     ```bash
+     npm run build && grep -oE "sb_secret_[A-Za-z0-9_-]{10,}|service_role" dist/assets/*.js
+     ```
+
+     沒有輸出任何東西就是安全的。
 4. 把網址記到報告的「URL」欄。
 
 ## 常見問題
