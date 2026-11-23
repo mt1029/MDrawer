@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 11/22 | 規格審查 | 請 AI 檢視規格書 v1 是否可行 | 指出同步風險與 6 個技術細節問題 | 採納降級設計，改寫成 v2（差異見附錄） | 與 v1 逐項比較，列出差異表 |
 | 11/23 | 規格整理與提案簡述 | 請 AI 整理規格書、刪除多餘標語，依指定格式寫提案簡述並想專題名稱 | 重排章節、合併重複內容、補上兩項遺漏（見錯誤清單）、簡述與名稱候選 | 沒怎麼改就只是改了一些用語之類的 | 看過一遍 |
-| 11/23 | 建立專案與登入 | 先讀 spec 與 CLAUDE.md；只用 Vite + React + TS 建專案、接 Supabase 註冊／登入／登出、說明 Vercel 部署，不做其他功能 | 專案骨架、`src/lib/supabase.ts`、`src/lib/useSession.ts`、`src/components/AuthForm.tsx`、`docs/deploy.md`；依 spec 第 12 節範本建立 `CLAUDE.md` | （待填） | AI 端：`npm run build`、`npm run lint` 通過；未接後端時登入表單與「無法連線」訊息正常；真實註冊／登入／登出待建好 Supabase 專案後驗證（見 docs/deploy.md C、G）。原本宣稱「打包檔不含 `sb_secret`」，這個檢查無效，見錯誤清單 |
+| 11/23 | 建立專案與登入 | 先讀 spec 與 CLAUDE.md；只用 Vite + React + TS 建專案、接 Supabase 註冊／登入／登出、說明 Vercel 部署，不做其他功能 | 專案骨架、`src/lib/supabase.ts`、`src/lib/useSession.ts`、`src/components/AuthForm.tsx`、`docs/deploy.md`；依 spec 第 12 節範本建立 `CLAUDE.md` | 沒怎麼改我還在熟悉這個太久沒用了 | AI 端：`npm run build`、`npm run lint` 通過；未接後端時登入表單與「無法連線」訊息正常；真實註冊／登入／登出待建好 Supabase 專案後驗證（見 docs/deploy.md C、G）。原本宣稱「打包檔不含 `sb_secret`」，這個檢查無效，見錯誤清單 |
 
 ## 錯誤清單
 
