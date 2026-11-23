@@ -11,6 +11,9 @@
   --error-bg: #fdecea;
   --notice: #1b5e20;
   --notice-bg: #e8f5e9;
+  --danger-bg: #c62828;
+  --selected-bg: #e3ebfd;
+  --hover-bg: #eef0f2;
 
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', sans-serif;
@@ -33,6 +36,9 @@
     --error-bg: #3a1f1f;
     --notice: #a5d6a7;
     --notice-bg: #1d2e1f;
+    --danger-bg: #b3261e;
+    --selected-bg: #263553;
+    --hover-bg: #2a2d33;
   }
 }
 
@@ -65,8 +71,23 @@ button {
 }
 
 button:disabled {
-  opacity: 0.6;
-  cursor: progress;
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+button.danger {
+  background: var(--danger-bg);
+  color: #ffffff;
+}
+
+button.danger-text {
+  color: var(--error);
 }
 
 button:focus-visible,
@@ -185,6 +206,11 @@ button.link {
   min-width: 0;
 }
 
+.account button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .account .email {
   color: var(--muted);
   overflow: hidden;
@@ -192,7 +218,245 @@ button.link {
   white-space: nowrap;
 }
 
-.home {
-  padding: 2rem 1rem;
+/* 登入後：上方列 + 工作區，左右兩欄各自捲動 */
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  height: 100dvh;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  padding: 0.75rem;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.toolbar button {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.9rem;
+}
+
+.toolbar-hint {
+  margin: 0;
+  font-size: 0.85rem;
   color: var(--muted);
+}
+
+.detail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.detail-type {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.detail-title {
+  margin: 0.25rem 0;
+  font-size: 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+.detail-meta {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.detail-placeholder {
+  color: var(--muted);
+}
+
+/* 資料夾樹（主畫面與移動對話框共用） */
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding-left: calc(var(--depth, 0) * 1rem);
+  border-radius: 6px;
+}
+
+.tree-row:hover {
+  background: var(--hover-bg);
+}
+
+.tree-row.selected {
+  background: var(--selected-bg);
+}
+
+.tree-toggle,
+.tree-toggle-spacer {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.tree-toggle,
+.tree-item {
+  background: none;
+  color: var(--text);
+  border-radius: 6px;
+}
+
+.tree-toggle {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.tree-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+}
+
+.tree-item svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.tree-item[aria-current='true'] {
+  font-weight: 600;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-tag {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.tree-note {
+  margin: 0;
+  padding: 0.3rem 0 0.3rem calc(var(--depth, 0) * 1rem + 2.15rem);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.chevron {
+  transition: transform 0.15s;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+/* 對話框 */
+.modal {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / 0.4);
+}
+
+.modal h2 {
+  margin-bottom: 1rem;
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
+}
+
+.modal-body {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.modal-body p {
+  margin: 0;
+}
+
+.modal-body label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+
+.modal-body input {
+  font: inherit;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.modal-hint {
+  color: var(--muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.picker {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* 窄螢幕：資料夾樹在上、內容在下 */
+@media (max-width: 720px) {
+  .app-shell {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-y: visible;
+  }
+
+  .detail {
+    overflow-y: visible;
+  }
 }

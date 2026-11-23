@@ -10,6 +10,7 @@
 | 11/23 | 規格整理與提案簡述 | 請 AI 整理規格書、刪除多餘標語，依指定格式寫提案簡述並想專題名稱 | 重排章節、合併重複內容、補上兩項遺漏（見錯誤清單）、簡述與名稱候選 | 沒怎麼改就只是改了一些用語之類的 | 看過一遍 |
 | 11/23 | 建立專案與登入 | 先讀 spec 與 CLAUDE.md；只用 Vite + React + TS 建專案、接 Supabase 註冊／登入／登出、說明 Vercel 部署，不做其他功能 | 專案骨架、`src/lib/supabase.ts`、`src/lib/useSession.ts`、`src/components/AuthForm.tsx`、`docs/deploy.md`；依 spec 第 12 節範本建立 `CLAUDE.md` | 沒怎麼改我還在熟悉這個太久沒用了 | AI 端：`npm run build`、`npm run lint` 通過；未接後端時登入表單與「無法連線」訊息正常；真實註冊／登入／登出待建好 Supabase 專案後驗證（見 docs/deploy.md C、G）。原本宣稱「打包檔不含 `sb_secret`」，這個檢查無效，見錯誤清單 |
 | 11/23 | nodes 表、觸發器、RLS | 照 spec 第 9 節做下一步；SQL 交給我自己在 SQL Editor 執行，並提供 A、B 帳號的隔離測試 | AI 先審查 spec 第 5 節的 SQL，提出 6 項修改讓我選（見錯誤清單）；產出 `supabase/migrations/20261123000000_create_nodes.sql`、`scripts/rls-test.mjs`（`npm run test:rls`）、`docs/database.md`；確認後把 spec 第 5 節的欄位說明與 SQL 同步成新版 | 6 項修改全部採用，包含同層名稱不分大小寫（避免 ZIP 撞名）。 | AI 端：在本機用 PGlite 模擬 Supabase 的 auth 與角色，執行同一份 SQL，23 項檢查全過（觸發器、名稱限制、A/B 隔離、未登入被拒、刪帳號連帶刪資料）。我在真實 Supabase 執行 SQL 與 `npm run test:rls`，全部通過 |
+| 11/23 | repo 介面與資料夾樹 | 照 spec 第 9 節，一次只做一個功能：`repo` 介面、`repo.online.ts`、資料夾與筆記的建立／改名／移動／刪除；筆記內容的 Markdown 編輯留到下一步 | `src/lib/nodes.ts`（型別、錯誤、名稱規則）、`src/lib/repo.ts`、`src/lib/repo.online.ts`；畫面元件 `Workspace`、`FileTree`、`NameDialog`、`MoveDialog`、`ConfirmDialog` | （待填） | AI 端：build、lint 通過。另外用記憶體版的假 repo 在瀏覽器實測：建立 5 層資料夾與筆記、重名與 `../` 的錯誤訊息、改名、移動、資料夾無法移進自己底下、刪除資料夾時子孫一併標記刪除、手機寬度沒有水平捲動。真實 Supabase 上的操作：（待填） |
 
 ## 錯誤清單
 
@@ -28,6 +29,7 @@ AI 給錯或沒想到的地方逐項記下，包含怎麼發現、怎麼修。�
 | 11/23 | `user_id` 參照 `auth.users` 沒有 `on delete cascade`，帳號底下有資料時，在 Dashboard 刪不掉這個帳號 | 審查 SQL | 加上 `on delete cascade` |
 | 11/23 | 同層名稱的唯一索引區分大小寫，`Notes` 與 `notes` 可並存，但 ZIP 在 macOS、Windows 解壓時會被當成同一個資料夾 | 對照 ZIP 匯出的驗收條件 | 唯一索引改用 `lower(name)` |
 | 11/23 | 觸發器用 `now()`，它是交易開始的時間，不是 commit 的時間。L2 拉取用「`updated_at >=` 上次看到的值」，晚 commit 但時間較早的修改可能永遠被漏掉 | 審查觸發器時對照第 6 節的拉取規則 | 這一步先不改。L2 實作拉取時，改成從「上次的值減幾秒」開始抓，再用 `id` + `version` 去重 |
+| 11/23 | AI 第一版的手機版面：「登出」按鈕被擠成直排，整頁有 17px 的水平捲動（grid 欄位被信箱文字撐開） | AI 在瀏覽器用手機尺寸實測時發現 | 欄位改成 `minmax(0, 1fr)`、按鈕不換行；修正後頁面寬度等於畫面寬度 |
 
 ## 每週回顧
 

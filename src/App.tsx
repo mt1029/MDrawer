@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AuthForm from './components/AuthForm.tsx'
+import Workspace from './components/Workspace.tsx'
 import { supabase } from './lib/supabase.ts'
 import { useSession } from './lib/useSession.ts'
 
@@ -23,7 +24,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className="app-shell">
       <header className="topbar">
         <span className="brand">MDrawer</span>
         <span className="account">
@@ -33,9 +34,7 @@ export default function App() {
           </button>
         </span>
       </header>
-      <main className="home">
-        <p>已登入。資料夾與筆記功能會在下一步加入。</p>
-      </main>
-    </>
+      <Workspace />
+    </div>
   )
 }
