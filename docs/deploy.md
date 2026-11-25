@@ -135,3 +135,43 @@ Authentication → URL Configuration：
 | 「Email address not authorized」或寄信額度錯誤 | Confirm email 沒關，回到 A-2 |
 | 驗證信的連結跳到 `localhost:3000` | Site URL 沒改，回到 A-3 / F |
 | 改了 `.env.local` 沒反應 | 停掉 `npm run dev` 再重新啟動 |
+
+---
+
+# PWA：安裝與離線外殼（核心層最後一步）
+
+用 `vite-plugin-pwa` 產生 manifest 與 service worker。打包時會預先快取 App 的檔案（HTML、JS、CSS、圖示），所以沒網路也能開啟 App 畫面。筆記資料仍要連線才能讀寫；離線閱讀是之後離線 L1 的工作。
+
+開發模式（`npm run dev`）不會啟用 service worker，要測 PWA 請用打包後的版本：本機 `npm run build && npm run preview`，或直接到 Vercel 網址測。
+
+## 驗證
+
+| # | 操作 | 預期結果 |
+| --- | --- | --- |
+| 1 | 電腦用 Chrome 或 Edge 開 Vercel 網址 | 網址列右側出現「安裝」圖示，安裝後以獨立視窗開啟，視窗與工作列顯示 MDrawer 圖示 |
+| 2 | Android 用 Chrome 開 Vercel 網址 → 選單 →「安裝應用程式」或「加到主畫面」 | 主畫面出現圖示，點開沒有網址列 |
+| 3 | iPhone 用 Safari 開 Vercel 網址 → 分享 →「加入主畫面」 | 主畫面出現藍底抽屜圖示，點開沒有網址列 |
+| 4 | 開過一次 App 後，開飛航模式再開 App | 仍能看到畫面，上方顯示「目前離線…」的提示 |
+| 5 | 離線時在已開啟的筆記打幾個字 | 顯示「儲存失敗」與原因，打的字還在 |
+| 6 | 關掉飛航模式 | 離線提示消失，筆記自動補存成「已儲存」，資料夾樹重新載入 |
+| 7 | F12 → Console | 沒有 Content-Security-Policy 相關的錯誤 |
+
+## 更新版本
+
+推上新版本後，service worker 會在背景下載新檔案，**下一次開啟 App 時**才換成新版，不會在使用中突然重新整理。想立刻看到新版，就把 App 關掉再開一次。
+
+## 換圖示
+
+圖示是佔位用的「藍底兩層抽屜」。要換成自己設計的：
+
+1. 用新的設計取代 `public/logo.svg`（正方形；重要內容放在中間約 80% 的範圍內，Android 會把圖示裁成圓形）。
+2. 執行 `npm run icons`，會重新產生 `public/` 裡的 PNG 與 `favicon.ico`。
+3. 要換主色時，一併修改 `pwa-assets.config.ts` 的 `BRAND_BLUE`。
+
+## 常見問題
+
+| 狀況 | 原因與處理 |
+| --- | --- |
+| Chrome 沒有出現「安裝」 | 要用 https（Vercel 網址）或 localhost；開發模式沒有 service worker。F12 → Application → Manifest 可以看到不能安裝的原因 |
+| 改了程式但 App 還是舊版 | service worker 會先顯示快取的舊版，關掉 App 再開一次就會換新。開發時可在 F12 → Application → Service Workers 按 Unregister |
+| iPhone 上的圖示是網頁截圖 | 確認 `public/apple-touch-icon-180x180.png` 有部署上去，刪掉主畫面圖示後重新加入 |

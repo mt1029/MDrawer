@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:rls": "node --env-file=.env.local --env-file=.env.test.local scripts/rls-test.mjs",
+    "icons": "pwa-assets-generator",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -22,11 +23,13 @@
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vite-pwa/assets-generator": "^2.0.0",
     "@vitejs/plugin-react": "^6.1.2",
     "jsdom": "^31.0.1",
     "oxlint": "^1.90.0",
     "typescript": "~7.0.2",
     "vite": "^8.3.6",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.1.1"
   }
 }

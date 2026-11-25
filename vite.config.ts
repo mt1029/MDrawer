@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 /**
  * 打包時在 index.html 加上 Content-Security-Policy（spec 第 7 節）。
@@ -45,6 +46,42 @@ export default defineConfig(({ mode }) => {
   // 與 Vite 相同的優先順序：系統環境變數（Vercel）優先，其次是 .env.local
   const supabaseUrl = process.env.VITE_SUPABASE_URL ?? loadEnv(mode, process.cwd(), 'VITE_').VITE_SUPABASE_URL
   return {
-    plugins: [react(), cspPlugin(supabaseUrl)],
+    plugins: [
+      react(),
+      cspPlugin(supabaseUrl),
+      VitePWA({
+        // 有新版本時，service worker 直接換新，下次開啟就是新版。
+        // 不會自動重新整理畫面，避免打到一半的筆記被打斷。
+        registerType: 'autoUpdate',
+        // 用外部 registerSW.js 註冊，不用行內 script，符合 CSP 的 script-src 'self'
+        injectRegister: 'script',
+        includeAssets: ['favicon.ico', 'logo.svg', 'apple-touch-icon-180x180.png'],
+        manifest: {
+          name: 'MDrawer',
+          short_name: 'MDrawer',
+          description: '以資料夾為核心的個人 Markdown 筆記空間',
+          lang: 'zh-Hant',
+          start_url: '/',
+          scope: '/',
+          display: 'standalone',
+          theme_color: '#ffffff',
+          background_color: '#f7f7f5',
+          icons: [
+            { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
+            { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+            { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+        },
+        workbox: {
+          // 離線外殼：預先快取打包出來的檔案，沒網路也能開啟 App 畫面
+          globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+          navigateFallback: '/index.html',
+          cleanupOutdatedCaches: true,
+          // 不設定 runtimeCaching：Supabase 的登入、資料與圖片一律走網路，不快取。
+          // 離線讀筆記是離線 L1 的工作（IndexedDB），不靠 service worker
+        },
+      }),
+    ],
   }
 })

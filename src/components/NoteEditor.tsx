@@ -105,6 +105,15 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
     }
   }, [save])
 
+  // 恢復連線時，把離線期間沒存成功的內容補存
+  useEffect(() => {
+    const handleOnline = () => {
+      if (latest.current !== lastSaved.current) void save()
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [save])
+
   // 有未儲存的修改時，關閉分頁前提醒
   useEffect(() => {
     if (saveState === 'saved') return

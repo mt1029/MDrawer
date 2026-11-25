@@ -2,10 +2,21 @@ import { useState } from 'react'
 import AuthForm from './components/AuthForm.tsx'
 import Workspace from './components/Workspace.tsx'
 import { supabase } from './lib/supabase.ts'
+import { useOnline } from './lib/useOnline.ts'
 import { useSession } from './lib/useSession.ts'
+
+/** 離線提示。App 外殼由 service worker 提供，但資料要連線才能讀寫 */
+function OfflineBanner() {
+  return (
+    <p className="offline-banner" role="status">
+      目前離線：App 可以開啟，但讀寫筆記與上傳圖片需要網路。恢復連線後會自動重新載入。
+    </p>
+  )
+}
 
 export default function App() {
   const session = useSession()
+  const online = useOnline()
   const [signingOut, setSigningOut] = useState(false)
 
   if (session === undefined) {
@@ -13,7 +24,12 @@ export default function App() {
   }
 
   if (!session) {
-    return <AuthForm />
+    return (
+      <>
+        {!online && <OfflineBanner />}
+        <AuthForm />
+      </>
+    )
   }
 
   async function handleSignOut() {
@@ -34,6 +50,7 @@ export default function App() {
           </button>
         </span>
       </header>
+      {!online && <OfflineBanner />}
       <Workspace />
     </div>
   )

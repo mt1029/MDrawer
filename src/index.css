@@ -14,6 +14,8 @@
   --danger-bg: #c62828;
   --selected-bg: #e3ebfd;
   --hover-bg: #eef0f2;
+  --warning: #8a4b00;
+  --warning-bg: #fff4e5;
 
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', sans-serif;
@@ -39,6 +41,8 @@
     --danger-bg: #b3261e;
     --selected-bg: #263553;
     --hover-bg: #2a2d33;
+    --warning: #ffcc80;
+    --warning-bg: #3a2e1a;
   }
 }
 
@@ -219,14 +223,24 @@ button.link {
 }
 
 /* 登入後：上方列 + 工作區，左右兩欄各自捲動 */
+/* 上方列、離線提示（有時才出現）、工作區由上往下排，工作區佔滿剩下的高度 */
 .app-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100dvh;
 }
 
+.offline-banner {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 .workspace {
+  flex: 1;
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   min-height: 0;
@@ -310,7 +324,7 @@ button.link {
   gap: 0.25rem;
 }
 
-.view-tabs button {
+.editor-bar button {
   padding: 0.3rem 0.8rem;
 }
 

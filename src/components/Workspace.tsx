@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RepoError, repo, type NodeMeta, type NodeType } from '../lib/repo.ts'
 import ConfirmDialog from './ConfirmDialog.tsx'
 import FileTree from './FileTree.tsx'
@@ -90,6 +90,17 @@ export default function Workspace() {
       report(err)
     }
   }
+
+  // 恢復連線時重新載入資料夾樹，把離線時載入失敗的部分補回來
+  const refreshRef = useRef(refresh)
+  useEffect(() => {
+    refreshRef.current = refresh
+  })
+  useEffect(() => {
+    const handleOnline = () => void refreshRef.current()
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [])
 
   async function handleCreate(type: NodeType, parentId: string | null, name: string) {
     const node = await repo.createNode({ parentId, type, name })

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- MDrawer 佔位圖示：藍底、兩層抽屜，上層露出一張筆記。改圖示時只要換掉這個檔案，再執行 npm run icons -->
+  <rect width="512" height="512" rx="112" fill="#2f6feb"/>
+  <rect x="180" y="76" width="152" height="96" rx="12" fill="#dbe7ff"/>
+  <rect x="204" y="100" width="104" height="10" rx="5" fill="#2f6feb" opacity="0.55"/>
+  <rect x="204" y="124" width="72" height="10" rx="5" fill="#2f6feb" opacity="0.55"/>
+  <rect x="136" y="132" width="240" height="272" rx="28" fill="#ffffff"/>
+  <rect x="136" y="262" width="240" height="12" fill="#2f6feb"/>
+  <rect x="216" y="186" width="80" height="22" rx="11" fill="#2f6feb"/>
+  <rect x="216" y="326" width="80" height="22" rx="11" fill="#2f6feb"/>
+</svg>
