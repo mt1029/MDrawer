@@ -493,6 +493,12 @@ button.link {
   outline-offset: -2px;
 }
 
+/* 切換型的圖示按鈕開啟時（例如正在預覽） */
+.icon-button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 @media (hover: hover) {
   :is(.icon-button, .activity-button):not(:disabled):hover {
     background: none;
@@ -501,6 +507,11 @@ button.link {
 
   .icon-button:not(:disabled):hover {
     background: var(--fill-2);
+  }
+
+  .icon-button[aria-pressed='true']:not(:disabled):hover {
+    background: var(--accent-soft);
+    color: var(--accent-press);
   }
 }
 
@@ -578,6 +589,16 @@ button.link {
   color: var(--muted);
 }
 
+/* 單選項目打勾（顯示方式） */
+.menu-check {
+  margin-left: auto;
+  padding-left: 0.5rem;
+}
+
+.menu-item .menu-check {
+  color: var(--accent);
+}
+
 /* 右邊的快捷鍵說明 */
 .menu-shortcut {
   margin-left: auto;
@@ -618,6 +639,18 @@ button.link {
   padding: 1.5rem 2rem;
 }
 
+/* 筆記或資料夾的標題區；小螢幕左邊多一個返回鍵 */
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.detail-heading {
+  flex: 1;
+  min-width: 0;
+}
+
 .detail-type {
   margin: 0;
   font-size: 0.8125rem;
@@ -643,7 +676,7 @@ button.link {
   color: var(--muted);
 }
 
-/* ── 筆記編輯器：桌面左右並排，窄螢幕切換「編輯／預覽」 ─────── */
+/* ── 筆記編輯器：只有編輯區、只有預覽、並排（大螢幕左右、窄螢幕上下） ─── */
 
 .editor {
   flex: 1;
@@ -657,25 +690,26 @@ button.link {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 2rem;
 }
 
-.view-tabs {
-  display: none;
-  gap: 0;
+.editor-bar .link-button {
+  font-size: 0.8125rem;
 }
 
-.editor-bar button {
-  padding: 0.35rem 0.8rem;
-  font-size: 0.9rem;
+/* 右上角的圖示：插入圖片、預覽 */
+.editor-actions {
+  display: flex;
+  gap: 0.125rem;
+  margin-left: auto;
 }
 
-.view-tabs button[aria-pressed='true'] {
-  background: var(--accent-soft);
-  color: var(--accent);
+.editor-actions .icon-button {
+  width: 2rem;
+  height: 2rem;
 }
 
 .save-state {
-  margin-left: auto;
   font-size: 0.8125rem;
   color: var(--muted);
 }
@@ -701,9 +735,19 @@ button.link {
 .editor-panes {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
   min-height: 20rem;
+}
+
+.editor[data-view='split'] .editor-panes {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* 不顯示的那一邊只是藏起來，編輯框的內容、游標位置都還在 */
+.editor[data-view='edit'] .markdown,
+.editor[data-view='preview'] .editor-input {
+  display: none;
 }
 
 .editor-input {
@@ -1008,6 +1052,23 @@ button.link {
   transform: rotate(90deg);
 }
 
+/* 觸控裝置：樹的每一列加高（約 40px），手指比較好點 */
+@media (pointer: coarse) {
+  .tree-item {
+    padding-block: 0.55rem;
+  }
+
+  .tree-toggle,
+  .tree-toggle-spacer {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .tree-row {
+    padding-left: calc(var(--depth, 0) * 1.25rem);
+  }
+}
+
 /* ── 對話框：浮在毛玻璃上的白色面板 ─────────────────────── */
 
 .modal {
@@ -1091,55 +1152,72 @@ button.link {
     top: 0;
   }
 
-  /* 窄螢幕暫時沿用上下排列（第 4 步再改成側欄、編輯器各一個畫面） */
+  /* 清單（側欄）與編輯器各佔一整個畫面：點筆記進入編輯器，返回鍵或瀏覽器的返回回到清單 */
   .workspace,
   .workspace.sidebar-hidden {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
-  .activity-bar {
+  .activity-bar,
+  .workspace[data-screen='list'] .detail,
+  .workspace[data-screen='detail'] .sidebar {
     display: none;
   }
 
-  .workspace.sidebar-hidden .sidebar {
+  .workspace.sidebar-hidden[data-screen='list'] .sidebar {
     display: flex;
   }
 
   .sidebar {
+    flex: 1;
     border-right: 0;
-    border-bottom: 0.5px solid var(--hairline);
+  }
+
+  /* 捲動清單時，標題列（新增等圖示）停在上方列下面 */
+  .panel-header {
+    position: sticky;
+    top: 3rem;
+    z-index: 1;
+    background: var(--fill);
   }
 
   .panel-body {
+    flex: 1;
     overflow-y: visible;
     padding-bottom: 1rem;
   }
 
   .detail {
+    flex: 1;
     overflow-y: visible;
-    padding: 1rem;
+    padding: 0.5rem 1rem 1rem;
+  }
+
+  .back-button {
+    flex: none;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin: 0.4rem 0 0 -0.5rem;
   }
 
   .detail-title {
     font-size: 1.6rem;
   }
 
-  .view-tabs {
-    display: flex;
-  }
-
-  .editor-panes {
+  /* 上下並排：各佔畫面的四成，內容多的話在框裡捲動，不會把頁面拉得很長 */
+  .editor[data-view='split'] .editor-panes {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .editor[data-view='edit'] .markdown,
-  .editor[data-view='preview'] .editor-input {
-    display: none;
+    grid-template-rows: 40dvh 40dvh;
   }
 
   .editor-input,
   .markdown {
     min-height: 60vh;
+  }
+
+  .editor[data-view='split'] :is(.editor-input, .markdown) {
+    min-height: 0;
+    height: 100%;
   }
 }

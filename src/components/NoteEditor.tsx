@@ -1,17 +1,42 @@
+import { IconEye, IconLayoutColumns, IconLayoutRows, IconPencil, IconPhotoPlus } from '@tabler/icons-react'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { ImageError, compressImage, formatBytes, type ImageFormat } from '../lib/image.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
 import { RepoError, mirror, repo, type NodeMeta } from '../lib/repo.ts'
+import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
 import { useImageUrls } from '../lib/useImageUrls.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
+import ContextMenu, { type MenuRequest } from './ContextMenu.tsx'
+import { Icon, IconButton } from './icons.tsx'
 
 // 停止輸入多久後自動儲存
 const AUTOSAVE_DELAY_MS = 1000
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error'
-type View = 'edit' | 'preview'
+/** 顯示方式：只有編輯區、只有預覽、並排（大螢幕左右、小螢幕上下） */
+type View = 'edit' | 'preview' | 'split'
 type ImageStatus = { kind: 'busy' | 'done' | 'error'; text: string }
 
 const FORMAT_LABEL: Record<ImageFormat, string> = { 'image/webp': 'WebP', 'image/jpeg': 'JPEG' }
+
+// 「並排」是版面的選擇，記在這台裝置，下次開別的筆記也一樣；只看預覽是暫時的，每篇都從編輯開始
+const SPLIT_KEY = 'mdrawer.editor.split'
+
+function loadSplit(): boolean {
+  try {
+    return localStorage.getItem(SPLIT_KEY) === '1'
+  } catch {
+    return false // 無痕模式等不能用 localStorage：每次都從只有編輯區開始
+  }
+}
+
+function saveSplit(split: boolean) {
+  try {
+    localStorage.setItem(SPLIT_KEY, split ? '1' : '0')
+  } catch {
+    // 存不了只影響下次的預設
+  }
+}
 
 const SAVE_LABEL: Record<SaveState, string> = {
   saved: '已儲存',
@@ -28,13 +53,21 @@ interface Props {
   onSaved: (node: NodeMeta) => void
 }
 
-/** 筆記編輯器：左邊寫 Markdown，右邊即時預覽；停止輸入一秒後自動儲存到這台裝置，再在背景同步 */
+/**
+ * 筆記編輯器（spec 第 3 節介面改版第 3 步）：預設只有編輯區，右上角的眼睛切換成預覽；
+ * 在眼睛上按右鍵或長按可以改成並排。停止輸入一秒後自動儲存到這台裝置，再在背景同步
+ */
 export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [view, setView] = useState<View>('edit')
+  const [split, setSplit] = useState(loadSplit)
+  const [previewOnly, setPreviewOnly] = useState(false)
+  const view: View = split ? 'split' : previewOnly ? 'preview' : 'edit'
+  const [menu, setMenu] = useState<MenuRequest | null>(null)
+  const narrow = useMediaQuery('(max-width: 720px)')
+  const canHover = useMediaQuery('(hover: hover)')
   const [imageStatus, setImageStatus] = useState<ImageStatus | null>(null)
   // 衝突時的說明（這次的內容已另存為衝突副本）
   const [notice, setNotice] = useState<string | null>(null)
@@ -217,13 +250,42 @@ export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
     void insertImages(images)
   }
 
-  // 輸入時先讓編輯框更新，預覽稍後跟上，長筆記也不會卡
-  const deferred = useDeferredValue(content ?? '')
-  const imageUrls = useImageUrls(deferred, cloud)
-  const previewHtml = useMemo(
-    () => renderMarkdown(deferred, (id) => imageUrls[id], { offline: !cloud }),
-    [deferred, imageUrls, cloud],
+  /** 切換顯示方式。回到只有編輯區時，游標放回編輯框 */
+  function changeView(next: View) {
+    setSplit(next === 'split')
+    saveSplit(next === 'split')
+    setPreviewOnly(next === 'preview')
+    if (next === 'edit') requestAnimationFrame(() => textarea.current?.focus())
+  }
+
+  const splitLabel = narrow ? '並排（上下）' : '並排（左右）'
+  const menuTrigger = useContextMenuTrigger((_target: null, x: number, y: number) =>
+    setMenu({
+      x,
+      y,
+      label: '顯示方式',
+      items: [
+        { label: '只顯示編輯區', icon: <Icon of={IconPencil} />, checked: view === 'edit', onSelect: () => changeView('edit') },
+        { label: '只顯示預覽', icon: <Icon of={IconEye} />, checked: view === 'preview', onSelect: () => changeView('preview') },
+        {
+          label: splitLabel,
+          icon: <Icon of={narrow ? IconLayoutRows : IconLayoutColumns} />,
+          checked: view === 'split',
+          onSelect: () => changeView('split'),
+        },
+      ],
+    }),
   )
+
+  // 輸入時先讓編輯框更新，預覽稍後跟上，長筆記也不會卡。看不到預覽時不轉換、不取圖片網址
+  const showPreview = view !== 'edit'
+  const deferred = useDeferredValue(content ?? '')
+  const imageUrls = useImageUrls(deferred, cloud && showPreview)
+  const previewHtml = useMemo(
+    () => (showPreview ? renderMarkdown(deferred, (id) => imageUrls[id], { offline: !cloud }) : ''),
+    [deferred, imageUrls, cloud, showPreview],
+  )
+  const eyeLabel = view === 'edit' ? '預覽 Markdown' : '回到編輯'
 
   if (loadError) return <p className="message error">{loadError}</p>
   if (content === null) return <p className="detail-placeholder">載入中…</p>
@@ -231,33 +293,30 @@ export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
   return (
     <div className="editor" data-view={view}>
       <div className="editor-bar">
-        <div className="view-tabs" role="group" aria-label="顯示">
-          <button
-            type="button"
-            className="secondary"
-            aria-pressed={view === 'edit'}
-            onClick={() => setView('edit')}
-          >
-            編輯
+        <span className={`save-state ${saveState}`} role="status">
+          {SAVE_LABEL[saveState]}
+        </span>
+        {saveState === 'error' && (
+          <button type="button" className="link-button" onClick={() => void save()}>
+            重試
           </button>
-          <button
-            type="button"
-            className="secondary"
-            aria-pressed={view === 'preview'}
-            onClick={() => setView('preview')}
-          >
-            預覽
-          </button>
+        )}
+        <div className="editor-actions">
+          <IconButton
+            icon={IconPhotoPlus}
+            label={cloud ? '插入圖片' : '離線時無法插入圖片'}
+            disabled={!cloud}
+            onClick={() => fileInput.current?.click()}
+          />
+          <IconButton
+            icon={IconEye}
+            label={eyeLabel}
+            title={`${eyeLabel}（${canHover ? '按右鍵' : '長按'}可以改成並排）`}
+            pressed={showPreview}
+            {...menuTrigger(null)}
+            onClick={() => changeView(view === 'edit' ? 'preview' : 'edit')}
+          />
         </div>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => fileInput.current?.click()}
-          disabled={!cloud}
-          title={cloud ? undefined : '離線時無法插入圖片'}
-        >
-          插入圖片
-        </button>
         <input
           ref={fileInput}
           type="file"
@@ -270,14 +329,6 @@ export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
             void insertImages(files)
           }}
         />
-        <span className={`save-state ${saveState}`} role="status">
-          {SAVE_LABEL[saveState]}
-        </span>
-        {saveState === 'error' && (
-          <button type="button" className="secondary" onClick={() => void save()}>
-            重試
-          </button>
-        )}
       </div>
       {saveError && saveState === 'error' && (
         <p className="message error" role="alert">
@@ -320,6 +371,7 @@ export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
         {/* previewHtml 已經過 markdown-it（html: false）與 DOMPurify 過濾，見 src/lib/markdown.ts */}
         <article className="markdown" aria-label="預覽" dangerouslySetInnerHTML={{ __html: previewHtml }} />
       </div>
+      {menu && <ContextMenu request={menu} onClose={() => setMenu(null)} />}
     </div>
   )
 }

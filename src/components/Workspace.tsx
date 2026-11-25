@@ -1,4 +1,5 @@
 import {
+  IconChevronLeft,
   IconClipboard,
   IconCopy,
   IconCut,
@@ -15,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type
 import { formatTime } from '../lib/format.ts'
 import { RepoError, mirror, repo, sortNodes, type NodeMeta, type NodeType } from '../lib/repo.ts'
 import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
+import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useMirror } from '../lib/useMirror.ts'
 import ConfirmDialog from './ConfirmDialog.tsx'
 import ContextMenu, { type MenuItems, type MenuRequest } from './ContextMenu.tsx'
@@ -46,6 +48,10 @@ const CAN_DRAG = typeof window !== 'undefined' && window.matchMedia?.('(hover: h
 const DRAG_EXPAND_MS = 700
 // 拖曳的資料格式：自訂的類型，放到編輯框裡不會變成文字
 const DRAG_TYPE = 'application/x-mdrawer-node'
+// 小螢幕（spec 第 3 節介面改版第 4 步）：側欄與編輯器各佔一整個畫面
+const NARROW = '(max-width: 720px)'
+// 進入編輯器時在瀏覽器歷史記錄加一筆，Android 的返回手勢、Safari 的往回滑都會回到清單
+const DETAIL_STATE = 'mdrawer-detail'
 
 const TYPE_LABEL: Record<NodeType, string> = { folder: '資料夾', note: '筆記' }
 /** 同步狀態：等待同步的筆數、最後同步時間、失敗原因、衝突副本 */
@@ -109,6 +115,11 @@ export default function Workspace({ cloud }: Props) {
   const [dragging, setDragging] = useState<NodeMeta | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null | undefined>(undefined)
   const expandTimer = useRef<{ id: string; timer: number } | null>(null)
+  // 小螢幕：目前在編輯器畫面（否則在清單畫面）。回到清單時恢復原本的捲動位置
+  const narrow = useMediaQuery(NARROW)
+  const [inDetail, setInDetail] = useState(false)
+  const listScroll = useRef(0)
+  const backButton = useRef<HTMLButtonElement>(null)
 
   const loadChildren = useCallback(async (parentId: string | null) => {
     const list = await repo.listChildren(parentId)
@@ -160,8 +171,55 @@ export default function Workspace({ cloud }: Props) {
 
   function select(node: NodeMeta | null) {
     setSelectedId(node?.id ?? null)
-    if (node?.type === 'folder' && !expanded.has(node.id)) expand(node.id)
+    if (node?.type === 'folder') {
+      // 小螢幕點資料夾就是展開／收合；大螢幕點了會展開，收合用左邊的箭頭
+      if (narrow) toggle(node)
+      else if (!expanded.has(node.id)) expand(node.id)
+    } else if (node?.type === 'note') {
+      openDetail()
+    }
   }
+
+  /** 小螢幕：進入編輯器畫面 */
+  function openDetail() {
+    if (!narrow || inDetail) return
+    listScroll.current = window.scrollY
+    window.history.pushState({ [DETAIL_STATE]: true }, '')
+    setInDetail(true)
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 0)
+      backButton.current?.focus()
+    })
+  }
+
+  /** 小螢幕：回到清單。有加歷史記錄就往回一頁（跟按瀏覽器的返回一樣），由 popstate 切換畫面 */
+  function backToList() {
+    if ((window.history.state as Record<string, unknown> | null)?.[DETAIL_STATE]) window.history.back()
+    else setInDetail(false)
+  }
+
+  // 瀏覽器的返回、前進：依歷史記錄決定在哪個畫面
+  useEffect(() => {
+    // 在編輯器畫面重新整理後，歷史記錄還留著那一筆，先清掉
+    if ((window.history.state as Record<string, unknown> | null)?.[DETAIL_STATE]) window.history.replaceState(null, '')
+    const onPopState = (event: PopStateEvent) => {
+      setInDetail(Boolean((event.state as Record<string, unknown> | null)?.[DETAIL_STATE]))
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  // 回到清單：恢復捲動位置，焦點回到剛才那篇筆記
+  const wasInDetail = useRef(inDetail)
+  useEffect(() => {
+    if (wasInDetail.current && !inDetail) {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, listScroll.current)
+        document.querySelector<HTMLElement>('.tree-row.selected .tree-item')?.focus({ preventScroll: true })
+      })
+    }
+    wasInDetail.current = inDetail
+  }, [inDetail])
 
   async function expandAll() {
     setError(null)
@@ -203,6 +261,8 @@ export default function Workspace({ cloud }: Props) {
     if (parentId) setExpanded((prev) => new Set(prev).add(parentId))
     setSelectedId(node.id)
     setDialog(null)
+    // 小螢幕新增筆記後直接進入編輯器
+    if (type === 'note') openDetail()
   }
 
   async function handleRename(node: NodeMeta, name: string) {
@@ -412,9 +472,11 @@ export default function Workspace({ cloud }: Props) {
   }
 
   const anyExpanded = expanded.size > 0
+  // 小螢幕目前的畫面：只有選了筆記、而且點進去之後才是編輯器
+  const screen = narrow && inDetail && selected?.type === 'note' ? 'detail' : 'list'
 
   return (
-    <div className={sidebarOpen ? 'workspace' : 'workspace sidebar-hidden'}>
+    <div className={sidebarOpen ? 'workspace' : 'workspace sidebar-hidden'} data-screen={screen}>
       <nav className="activity-bar" aria-label="面板">
         <IconButton
           icon={IconFiles}
@@ -500,9 +562,23 @@ export default function Workspace({ cloud }: Props) {
       <main className="detail">
         {selected ? (
           <>
-            <p className="detail-type">{TYPE_LABEL[selected.type]}</p>
-            <h2 className="detail-title">{selected.name}</h2>
-            <p className="detail-meta">最後修改：{formatTime(selected.updated_at)}</p>
+            <header className="detail-header">
+              {narrow && (
+                <IconButton
+                  ref={backButton}
+                  icon={IconChevronLeft}
+                  label="返回檔案總管"
+                  className="icon-button back-button"
+                  size={22}
+                  onClick={backToList}
+                />
+              )}
+              <div className="detail-heading">
+                <p className="detail-type">{TYPE_LABEL[selected.type]}</p>
+                <h2 className="detail-title">{selected.name}</h2>
+                <p className="detail-meta">最後修改：{formatTime(selected.updated_at)}</p>
+              </div>
+            </header>
             {selected.type === 'note' ? (
               <NoteEditor key={selected.id} noteId={selected.id} cloud={cloud} onSaved={replaceNode} />
             ) : (

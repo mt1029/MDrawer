@@ -1,5 +1,7 @@
+import { IconCheck } from '@tabler/icons-react'
 import { useEffect, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { Icon } from './icons.tsx'
 
 export interface MenuEntry {
   label: string
@@ -11,6 +13,8 @@ export interface MenuEntry {
   disabled?: boolean
   /** 快捷鍵說明，顯示在右邊，例如 ⌘C */
   shortcut?: string
+  /** 單選項目（例如編輯器的顯示方式）：true 為目前選取的，右邊打勾 */
+  checked?: boolean
 }
 
 export type MenuItems = (MenuEntry | 'separator')[]
@@ -52,7 +56,9 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
     if (!previous.current && document.activeElement instanceof HTMLElement && !menu.contains(document.activeElement)) {
       previous.current = document.activeElement
     }
-    menu.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus()
+    // 有打勾的項目時，焦點放在打勾的那一項；否則放在第一項
+    const items = menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)')
+    ;(menu.querySelector<HTMLElement>('[aria-checked="true"]') ?? items[0])?.focus()
   }, [request])
 
   // 點選單外面、捲動、改變視窗大小、切到別的視窗時關閉；關閉時焦點回到原本的元素
@@ -79,7 +85,7 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
   }, [])
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])
+    const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? [])
     const index = items.indexOf(document.activeElement as HTMLElement)
     const focus = (i: number) => items[(i + items.length) % items.length]?.focus()
     switch (event.key) {
@@ -122,7 +128,8 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
           <button
             key={item.label}
             type="button"
-            role="menuitem"
+            role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+            aria-checked={item.checked}
             tabIndex={-1}
             className={item.danger ? 'menu-item menu-danger' : 'menu-item'}
             disabled={item.disabled}
@@ -135,6 +142,7 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
             {item.icon}
             <span>{item.label}</span>
             {item.shortcut && <kbd className="menu-shortcut">{item.shortcut}</kbd>}
+            {item.checked && <Icon of={IconCheck} size={16} className="menu-check" />}
           </button>
         ),
       )}
