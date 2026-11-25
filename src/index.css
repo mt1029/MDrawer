@@ -1,25 +1,42 @@
+/*
+ * 極簡主題：白底（深色模式黑底）、細字重、0.5px 細線、無圓角，
+ * 用淺灰填色取代外框，上方列與對話框用毛玻璃與浮動陰影。
+ * 顏色都從下面的變數取，深色模式只換變數。
+ */
 :root {
-  --bg: #f7f7f5;
-  --surface: #ffffff;
-  --text: #1f2328;
-  --muted: #646a73;
-  --border: #d8dadd;
-  --accent: #2f6feb;
-  --button-bg: #2f6feb;
-  --button-text: #ffffff;
-  --error: #c62828;
-  --error-bg: #fdecea;
-  --notice: #1b5e20;
-  --notice-bg: #e8f5e9;
-  --danger-bg: #c62828;
-  --selected-bg: #e3ebfd;
-  --hover-bg: #eef0f2;
-  --warning: #8a4b00;
-  --warning-bg: #fff4e5;
+  --bg: #ffffff;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --fill: #f5f5f7;
+  --fill-2: #e8e8ed;
+  --hairline: rgb(0 0 0 / 0.14);
+  --rule: #d2d2d7;
+  /* 文字用的藍（連結、次要按鈕）比實心按鈕深一點，放在灰底上也有 4.5:1 的對比 */
+  --accent: #0066cc;
+  --accent-press: #0055aa;
+  --accent-soft: rgb(0 113 227 / 0.1);
+  /* 實心按鈕：深色模式也用這個藍，白字才夠清楚（#2997ff 配白字對比不足） */
+  --button-bg: #0071e3;
+  --button-bg-press: #0062c4;
+  --bar-bg: rgb(255 255 255 / 0.72);
+  --float-shadow: 0 0 0 0.5px var(--hairline), 0 12px 40px rgb(0 0 0 / 0.12);
+  --error: #d70015;
+  --error-soft: rgb(255 59 48 / 0.1);
+  --danger-bg: #d70015;
+  --warning: #b25000;
+  --warning-soft: rgb(255 149 0 / 0.12);
+  --success: #197a35;
+  --success-soft: rgb(52 199 89 / 0.12);
+  --mark: rgb(255 204 0 / 0.38);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', 'PingFang TC', 'Microsoft JhengHei UI',
+    'Hiragino Sans', 'Noto Sans CJK TC', 'Noto Sans TC', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
   color-scheme: light dark;
-  font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', sans-serif;
+  font-family: var(--font);
   font-size: 16px;
+  font-weight: 300;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
@@ -28,21 +45,32 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16171a;
-    --surface: #1f2125;
-    --text: #e6e7e9;
-    --muted: #9aa0a8;
-    --border: #363a40;
-    --accent: #7aa7ff;
-    --error: #ff8a80;
-    --error-bg: #3a1f1f;
-    --notice: #a5d6a7;
-    --notice-bg: #1d2e1f;
-    --danger-bg: #b3261e;
-    --selected-bg: #263553;
-    --hover-bg: #2a2d33;
-    --warning: #ffcc80;
-    --warning-bg: #3a2e1a;
+    --bg: #000000;
+    --text: #f5f5f7;
+    --muted: #98989d;
+    --fill: #1c1c1e;
+    --fill-2: #2c2c2e;
+    --hairline: rgb(255 255 255 / 0.16);
+    --rule: #424245;
+    --accent: #2997ff;
+    --accent-press: #147ce5;
+    --accent-soft: rgb(41 151 255 / 0.18);
+    --bar-bg: rgb(22 22 23 / 0.72);
+    --float-shadow: 0 0 0 0.5px var(--hairline), 0 12px 40px rgb(0 0 0 / 0.5);
+    --error: #ff453a;
+    --error-soft: rgb(255 69 58 / 0.16);
+    --warning: #ffb340;
+    --warning-soft: rgb(255 159 10 / 0.16);
+    --success: #30d158;
+    --success-soft: rgb(48 209 88 / 0.16);
+    --mark: rgb(255 214 10 / 0.32);
+  }
+}
+
+/* 使用者要求減少透明效果時，毛玻璃改成實色 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --bar-bg: var(--bg);
   }
 }
 
@@ -50,6 +78,16 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+::selection {
+  background: rgb(0 113 227 / 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  ::selection {
+    background: rgb(41 151 255 / 0.35);
+  }
 }
 
 body {
@@ -61,28 +99,46 @@ body {
 h1,
 h2 {
   margin: 0;
+  font-weight: 200;
   line-height: 1.2;
+  letter-spacing: -0.01em;
 }
+
+strong,
+b {
+  font-weight: 500;
+}
+
+/* ── 按鈕 ──────────────────────────────────────────────── */
 
 button {
   font: inherit;
+  font-weight: 400;
   cursor: pointer;
-  padding: 0.6rem 1rem;
+  padding: 0.55rem 1rem;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--button-bg);
-  color: var(--button-text);
+  color: #ffffff;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
+/* 次要按鈕：透明底、藍字 */
 button.secondary {
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+}
+
+button.secondary:disabled {
+  opacity: 1;
+  color: var(--muted);
 }
 
 button.danger {
@@ -90,17 +146,98 @@ button.danger {
   color: #ffffff;
 }
 
-button.danger-text {
+button.secondary.danger-text {
   color: var(--error);
 }
 
+button.secondary.danger-text:disabled {
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  button:not(:disabled):hover {
+    background: var(--button-bg-press);
+  }
+
+  button.secondary:not(:disabled):hover {
+    background: var(--accent-soft);
+  }
+
+  button.secondary.danger-text:not(:disabled):hover {
+    background: var(--error-soft);
+  }
+
+  button.danger:not(:disabled):hover {
+    background: color-mix(in srgb, var(--danger-bg) 85%, #000000);
+  }
+}
+
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* 載入中 */
+/* 看起來像連結的小按鈕（文字中的「重試」「知道了」） */
+button.link-button,
+button.link {
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+}
+
+button.link {
+  padding: 0 0.25rem;
+}
+
+@media (hover: hover) {
+  button:is(.link-button, .link):not(:disabled):hover {
+    background: none;
+    text-decoration-color: currentColor;
+  }
+}
+
+/* ── 輸入框：填色底，聚焦時藍框加淡藍光暈 ───────────────── */
+
+.card input,
+.modal-body input {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: var(--fill);
+  color: var(--text);
+  caret-color: var(--accent);
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.card input:focus,
+.modal-body input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+@media (hover: hover) {
+  :is(.card, .modal-body) input:not(:disabled, :focus):hover {
+    background: var(--fill-2);
+  }
+}
+
+/* ── 訊息 ──────────────────────────────────────────────── */
+
 .loading {
   margin: 0;
   padding: 2rem 1rem;
@@ -108,7 +245,29 @@ input:focus-visible {
   color: var(--muted);
 }
 
-/* 登入、註冊 */
+.message {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+}
+
+.message.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.message.error {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.message.notice {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+/* ── 登入、註冊 ─────────────────────────────────────────── */
+
 .auth {
   max-width: 400px;
   margin: 0 auto;
@@ -116,7 +275,9 @@ input:focus-visible {
 }
 
 .auth .brand {
-  font-size: 2rem;
+  font-size: 2.5rem;
+  font-weight: 200;
+  letter-spacing: -0.02em;
 }
 
 .tagline {
@@ -128,55 +289,33 @@ input:focus-visible {
   display: grid;
   gap: 1rem;
   padding: 1.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: var(--fill);
+}
+
+/* 卡片已經是填色底，輸入框換成白底（深色模式為較亮的灰）才看得出來 */
+.card input {
+  background: var(--bg);
+}
+
+@media (hover: hover) {
+  .card input:not(:disabled, :focus):hover {
+    background: var(--bg);
+    border-color: var(--hairline);
+  }
 }
 
 .card h2 {
-  font-size: 1.25rem;
+  font-size: 1.5rem;
 }
 
 .card label {
   display: grid;
   gap: 0.35rem;
-  font-weight: 500;
-}
-
-.card input {
-  font: inherit;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
+  font-weight: 400;
 }
 
 .card small {
-  font-weight: 400;
   color: var(--muted);
-}
-
-.message {
-  margin: 0;
-  padding: 0.6rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
-}
-
-.message.warning {
-  background: var(--warning-bg);
-  color: var(--warning);
-}
-
-.message.error {
-  color: var(--error);
-  background: var(--error-bg);
-}
-
-.message.notice {
-  color: var(--notice);
-  background: var(--notice-bg);
 }
 
 .switch {
@@ -185,62 +324,63 @@ input:focus-visible {
   font-size: 0.95rem;
 }
 
-button.link {
-  padding: 0 0.25rem;
-  background: none;
-  color: var(--accent);
-  text-decoration: underline;
-}
+/* ── 登入後：上方列、提示列、工作區由上往下排，工作區佔滿剩下的高度 ── */
 
-/* 登入後 */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-.topbar .brand {
-  font-weight: 700;
-  font-size: 1.15rem;
-}
-
-.account {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
-.account button {
-  flex: none;
-  white-space: nowrap;
-}
-
-.account .email {
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 登入後：上方列 + 工作區，左右兩欄各自捲動 */
-/* 上方列、離線提示（有時才出現）、工作區由上往下排，工作區佔滿剩下的高度 */
 .app-shell {
   display: flex;
   flex-direction: column;
   height: 100dvh;
 }
 
+.topbar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3rem;
+  padding: 0.4rem 0.5rem 0.4rem 1rem;
+  background: var(--bar-bg);
+  border-bottom: 0.5px solid var(--hairline);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
+  backdrop-filter: saturate(1.8) blur(20px);
+}
+
+.topbar .brand {
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.account button {
+  flex: none;
+  padding: 0.4rem 0.8rem;
+  white-space: nowrap;
+}
+
+.account .email {
+  margin-right: 0.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .offline-banner {
   margin: 0;
   padding: 0.5rem 1rem;
-  background: var(--warning-bg);
+  background: var(--warning-soft);
   color: var(--warning);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   text-align: center;
 }
 
@@ -256,26 +396,28 @@ button.link {
   flex-direction: column;
   gap: 0.5rem;
   min-height: 0;
-  padding: 0.75rem;
+  padding: 0.75rem 0.5rem;
   overflow-y: auto;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
+  background: var(--fill);
+  border-right: 0.5px solid var(--hairline);
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.25rem;
+  padding: 0 0.25rem;
 }
 
 .toolbar button {
-  padding: 0.35rem 0.65rem;
-  font-size: 0.9rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.875rem;
 }
 
 .toolbar-hint {
   margin: 0;
-  font-size: 0.85rem;
+  padding: 0 0.5rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -289,40 +431,32 @@ button.link {
   text-align: center;
 }
 
-/* 看起來像連結的小按鈕（文字中的「重試」） */
-button.link-button {
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
 .detail {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: 1.5rem 2rem;
 }
 
 .detail-type {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   color: var(--muted);
+  letter-spacing: 0.04em;
 }
 
 .detail-title {
-  margin: 0.25rem 0;
-  font-size: 1.5rem;
+  margin: 0.15rem 0 0.25rem;
+  font-size: 2rem;
+  font-weight: 200;
+  letter-spacing: -0.02em;
   overflow-wrap: anywhere;
 }
 
 .detail-meta {
-  margin: 0 0 1rem;
-  font-size: 0.85rem;
+  margin: 0 0 1.25rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -330,7 +464,8 @@ button.link-button {
   color: var(--muted);
 }
 
-/* 筆記編輯器：桌面左右並排，窄螢幕切換「編輯／預覽」 */
+/* ── 筆記編輯器：桌面左右並排，窄螢幕切換「編輯／預覽」 ─────── */
+
 .editor {
   flex: 1;
   display: flex;
@@ -342,26 +477,27 @@ button.link-button {
 .editor-bar {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .view-tabs {
   display: none;
-  gap: 0.25rem;
+  gap: 0;
 }
 
 .editor-bar button {
-  padding: 0.3rem 0.8rem;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.9rem;
 }
 
 .view-tabs button[aria-pressed='true'] {
-  background: var(--selected-bg);
-  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .save-state {
   margin-left: auto;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
@@ -369,15 +505,14 @@ button.link-button {
   color: var(--error);
 }
 
-
 .image-status {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
 .image-status.done {
-  color: var(--notice);
+  color: var(--success);
 }
 
 .image-status.error {
@@ -396,54 +531,82 @@ button.link-button {
   width: 100%;
   height: 100%;
   min-height: 20rem;
-  padding: 0.9rem;
+  padding: 1rem;
   resize: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: var(--fill);
   color: var(--text);
-  font: 0.95rem/1.6 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  caret-color: var(--accent);
+  font: 400 0.95rem/1.65 var(--mono);
   tab-size: 4;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
 }
 
-.editor-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+.editor-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg);
 }
 
-/* Markdown 預覽 */
+/* ── Markdown 預覽 ─────────────────────────────────────── */
+
 .markdown {
   min-width: 0;
   overflow: auto;
-  padding: 0.25rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  padding: 0.25rem 1rem;
+  border: 0.5px solid var(--hairline);
+  background: var(--bg);
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
 .markdown :is(h1, h2, h3, h4, h5, h6) {
-  margin: 1.2em 0 0.5em;
-  line-height: 1.3;
+  margin: 1.3em 0 0.5em;
+  line-height: 1.25;
 }
 
 .markdown h1 {
-  font-size: 1.6rem;
+  font-size: 2rem;
+  font-weight: 200;
+  letter-spacing: -0.02em;
 }
 
 .markdown h2 {
-  font-size: 1.3rem;
-  padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--border);
+  font-size: 1.5rem;
+  font-weight: 200;
+  letter-spacing: -0.01em;
 }
 
 .markdown h3 {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+.markdown :is(h4, h5, h6) {
+  font-size: 1rem;
+  font-weight: 500;
 }
 
 .markdown a {
   color: var(--accent);
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+  transition: text-decoration-color 0.2s ease;
+}
+
+.markdown a:active {
+  color: var(--accent-press);
+}
+
+@media (hover: hover) {
+  .markdown a:hover {
+    text-decoration-color: currentColor;
+  }
 }
 
 .markdown img {
@@ -457,16 +620,15 @@ button.link-button {
   display: inline-block;
   width: 12rem;
   height: 6rem;
-  border-radius: 6px;
   vertical-align: middle;
 }
 
 .markdown img.img-loading {
-  background: var(--hover-bg);
+  background: var(--fill);
 }
 
 .markdown img.img-missing {
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--rule);
 }
 
 /* 離線時還沒取得網址的圖片 */
@@ -477,10 +639,9 @@ button.link-button {
   width: 12rem;
   height: 6rem;
   padding: 0.5rem;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
+  border: 1px dashed var(--rule);
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   text-align: center;
   vertical-align: middle;
 }
@@ -490,24 +651,23 @@ button.link-button {
 }
 
 .markdown blockquote {
-  margin: 1em 0;
-  padding: 0 1em;
-  border-left: 3px solid var(--border);
-  color: var(--muted);
+  margin: 1.25em 0;
+  padding: 0 0 0 1em;
+  border-left: 2px solid var(--rule);
+  font-size: 1.125rem;
+  line-height: 1.6;
 }
 
 .markdown code {
   padding: 0.1em 0.35em;
-  border-radius: 4px;
-  background: var(--hover-bg);
-  font: 0.9em ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  background: var(--fill);
+  font: 400 0.9em var(--mono);
 }
 
 .markdown pre {
   overflow-x: auto;
-  padding: 0.8rem 1rem;
-  border-radius: 8px;
-  background: var(--hover-bg);
+  padding: 0.9rem 1rem;
+  background: var(--fill);
 }
 
 .markdown pre code {
@@ -523,20 +683,29 @@ button.link-button {
 }
 
 .markdown :is(th, td) {
-  padding: 0.4em 0.75em;
-  border: 1px solid var(--border);
+  padding: 0.5em 0.9em;
+  border-bottom: 0.5px solid var(--hairline);
+  text-align: left;
 }
 
 .markdown th {
-  background: var(--hover-bg);
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .markdown hr {
+  height: 1px;
   border: 0;
-  border-top: 1px solid var(--border);
+  background: var(--rule);
 }
 
-/* 資料夾樹（主畫面與移動對話框共用） */
+.markdown mark {
+  background: var(--mark);
+  color: inherit;
+}
+
+/* ── 資料夾樹（主畫面與移動對話框共用） ─────────────────── */
+
 .tree {
   list-style: none;
   margin: 0;
@@ -547,15 +716,27 @@ button.link-button {
   display: flex;
   align-items: center;
   padding-left: calc(var(--depth, 0) * 1rem);
-  border-radius: 6px;
-}
-
-.tree-row:hover {
-  background: var(--hover-bg);
+  transition: background-color 0.15s ease;
 }
 
 .tree-row.selected {
-  background: var(--selected-bg);
+  background: var(--accent-soft);
+}
+
+@media (hover: hover) {
+  .tree-row:not(.selected):hover {
+    background: var(--fill-2);
+  }
+
+  /* 樹裡的按鈕不要套用一般按鈕的藍底 */
+  .tree-row :is(.tree-toggle, .tree-item):not(:disabled):hover {
+    background: none;
+  }
+}
+
+/* 移動對話框裡的樹在白底上，hover 用淺灰 */
+.picker .tree-row:not(.selected):hover {
+  background: var(--fill);
 }
 
 .tree-toggle,
@@ -569,20 +750,26 @@ button.link-button {
 .tree-item {
   background: none;
   color: var(--text);
-  border-radius: 6px;
+  font-weight: 300;
 }
 
 .tree-toggle {
   display: grid;
   place-items: center;
   padding: 0;
+  color: var(--muted);
+}
+
+.tree-toggle:focus-visible,
+.tree-item:focus-visible {
+  outline-offset: -2px;
 }
 
 .tree-item {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   min-width: 0;
   padding: 0.3rem 0.4rem;
   text-align: left;
@@ -593,8 +780,12 @@ button.link-button {
   color: var(--muted);
 }
 
+.tree-row.selected .tree-item svg {
+  color: var(--accent);
+}
+
 .tree-item[aria-current='true'] {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .tree-name {
@@ -612,41 +803,45 @@ button.link-button {
 .tree-note {
   margin: 0;
   padding: 0.3rem 0 0.3rem calc(var(--depth, 0) * 1rem + 2.15rem);
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   color: var(--muted);
 }
 
 .chevron {
-  transition: transform 0.15s;
+  transition: transform 0.25s var(--ease);
 }
 
 .chevron.open {
   transform: rotate(90deg);
 }
 
-/* 對話框 */
+/* ── 對話框：浮在毛玻璃上的白色面板 ─────────────────────── */
+
 .modal {
   width: min(28rem, calc(100vw - 2rem));
-  padding: 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
+  padding: 1.5rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
   color: var(--text);
+  box-shadow: var(--float-shadow);
 }
 
 .modal::backdrop {
-  background: rgb(0 0 0 / 0.4);
+  background: rgb(0 0 0 / 0.3);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .modal h2 {
   margin-bottom: 1rem;
-  font-size: 1.15rem;
+  font-size: 1.5rem;
   overflow-wrap: anywhere;
 }
 
 .modal-body {
   display: grid;
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
 .modal-body p {
@@ -656,16 +851,7 @@ button.link-button {
 .modal-body label {
   display: grid;
   gap: 0.35rem;
-  font-weight: 500;
-}
-
-.modal-body input {
-  font: inherit;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
+  font-weight: 400;
 }
 
 .modal-hint {
@@ -681,16 +867,40 @@ button.link-button {
 .picker {
   max-height: 50vh;
   overflow-y: auto;
-  padding: 0.25rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 0.25rem 0;
+  border-block: 0.5px solid var(--hairline);
 }
 
-/* 窄螢幕：資料夾樹在上、內容在下 */
+/* ── 動態效果：使用者要求減少動態時關掉 ───────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .topbar,
+  .modal::backdrop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ── 窄螢幕：資料夾樹在上、內容在下，整頁捲動 ───────────── */
+
 @media (max-width: 720px) {
   .app-shell {
     height: auto;
     min-height: 100dvh;
+  }
+
+  /* 整頁捲動時上方列固定在頂端，內容從毛玻璃底下經過 */
+  .topbar {
+    position: sticky;
+    top: 0;
   }
 
   .workspace {
@@ -700,13 +910,17 @@ button.link-button {
 
   .sidebar {
     border-right: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 0.5px solid var(--hairline);
     overflow-y: visible;
   }
 
   .detail {
     overflow-y: visible;
     padding: 1rem;
+  }
+
+  .detail-title {
+    font-size: 1.6rem;
   }
 
   .view-tabs {
