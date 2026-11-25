@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { extractImageIds, renderMarkdown, type ImageResolver } from './markdown.ts'
+import { extractImageIds, renderMarkdown, type ImageResolver, type RenderOptions } from './markdown.ts'
 
 /** 把輸出的 HTML 解析成 DOM（不會執行任何 script），方便檢查 */
-function render(source: string, resolveImage?: ImageResolver): HTMLElement {
-  const doc = new DOMParser().parseFromString(`<body>${renderMarkdown(source, resolveImage)}</body>`, 'text/html')
+function render(source: string, resolveImage?: ImageResolver, options?: RenderOptions): HTMLElement {
+  const doc = new DOMParser().parseFromString(`<body>${renderMarkdown(source, resolveImage, options)}</body>`, 'text/html')
   return doc.body
 }
 
@@ -154,6 +154,25 @@ describe('貼圖：img:<id> 在 DOMPurify 之前換成網址', () => {
   it('換上的網址如果是 javascript:，仍會被 DOMPurify 擋下', () => {
     const body = render(`![](img:${ID})`, () => 'javascript:alert(1)')
     expectSafe(body)
+  })
+
+  it('離線時還沒有網址的圖片顯示「離線時無法載入圖片」（spec 第 6 節 L1）', () => {
+    const body = render(`![說明](img:${ID})`, () => undefined, { offline: true })
+    expect(body.querySelector('img')).toBeNull()
+    expect(body.querySelector('.img-offline')?.textContent).toBe('離線時無法載入圖片')
+  })
+
+  it('離線時已經有網址的圖片照常顯示，不存在的仍標上 img-missing', () => {
+    const shown = render(`![](img:${ID})`, () => SIGNED, { offline: true }).querySelector('img')
+    expect(shown?.getAttribute('src')).toBe(SIGNED)
+    const missing = render(`![](img:${ID})`, () => null, { offline: true }).querySelector('img')
+    expect(missing?.className).toBe('img-missing')
+  })
+
+  it('離線佔位框不會帶出圖片說明裡的 HTML', () => {
+    const body = render(`![<img src=x onerror=alert(1)>](img:${ID})`, () => undefined, { offline: true })
+    expectSafe(body)
+    expect(body.querySelectorAll('img')).toHaveLength(0)
   })
 
   it('找出筆記裡的圖片 id，去掉重複並忽略格式不對的', () => {

@@ -24,6 +24,7 @@ export type RepoErrorKind =
   | 'invalid_move' // 移到自己、自己的子孫或不是資料夾的地方
   | 'not_found' // 找不到，或已被刪除
   | 'network' // 連不到伺服器
+  | 'offline' // 離線中，這個操作需要網路（離線 L1 只能閱讀）
   | 'unknown'
 
 /** repo 丟出的錯誤。message 是可以直接顯示給使用者的中文 */
@@ -35,6 +36,16 @@ export class RepoError extends Error {
     this.name = 'RepoError'
     this.kind = kind
   }
+}
+
+const collator = new Intl.Collator('zh-Hant', { numeric: true, sensitivity: 'base' })
+
+/** 資料夾在前、再依名稱排序（數字依大小，不分大小寫）。直接排序傳入的陣列 */
+export function sortNodes<T extends NodeMeta>(nodes: T[]): T[] {
+  return nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+    return collator.compare(a.name, b.name)
+  })
 }
 
 export const MAX_NAME_LENGTH = 100

@@ -22,12 +22,14 @@ const SAVE_LABEL: Record<SaveState, string> = {
 
 interface Props {
   noteId: string
+  /** 只能閱讀（離線 L1）：不能輸入、不能插入圖片，恢復後自動補存離線前沒存到的內容 */
+  readOnly: boolean
   /** 儲存成功後回傳最新的資料（version、updated_at 已由資料庫更新） */
   onSaved: (node: NodeMeta) => void
 }
 
 /** 筆記編輯器：左邊寫 Markdown，右邊即時預覽；停止輸入一秒後自動儲存 */
-export default function NoteEditor({ noteId, onSaved }: Props) {
+export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -105,14 +107,30 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
     }
   }, [save])
 
-  // 恢復連線時，把離線期間沒存成功的內容補存
+  // 恢復連線（可以寫入）時：
+  //   - 有斷線前沒存成功的內容 → 補存
+  //   - 沒有 → 從雲端重新讀一次。離線時看的是副本，可能比雲端舊（別台裝置改過），
+  //     不重新讀的話，接著編輯會用舊內容蓋掉別台裝置的修改
+  const wasReadOnly = useRef(readOnly)
   useEffect(() => {
-    const handleOnline = () => {
-      if (latest.current !== lastSaved.current) void save()
+    const resumed = wasReadOnly.current && !readOnly
+    wasReadOnly.current = readOnly
+    if (!resumed) return
+    if (latest.current !== lastSaved.current) {
+      void save()
+      return
     }
-    window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [save])
+    const before = latest.current
+    repo
+      .getNode(noteId)
+      .then((node) => {
+        // 讀回來之前已經開始打字的話，以打的字為準
+        if (!mounted.current || !node || latest.current !== before) return
+        latest.current = lastSaved.current = node.content ?? ''
+        setContent(latest.current)
+      })
+      .catch(() => undefined)
+  }, [readOnly, save, noteId])
 
   // 有未儲存的修改時，關閉分頁前提醒
   useEffect(() => {
@@ -176,6 +194,7 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (readOnly) return
     const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
     // 沒有圖片，或同時有文字（例如從網頁複製一段圖文）時，照一般貼上處理
     if (images.length === 0 || event.clipboardData.getData('text/plain')) return
@@ -185,8 +204,11 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
 
   // 輸入時先讓編輯框更新，預覽稍後跟上，長筆記也不會卡
   const deferred = useDeferredValue(content ?? '')
-  const imageUrls = useImageUrls(deferred)
-  const previewHtml = useMemo(() => renderMarkdown(deferred, (id) => imageUrls[id]), [deferred, imageUrls])
+  const imageUrls = useImageUrls(deferred, !readOnly)
+  const previewHtml = useMemo(
+    () => renderMarkdown(deferred, (id) => imageUrls[id], { offline: readOnly }),
+    [deferred, imageUrls, readOnly],
+  )
 
   if (loadError) return <p className="message error">{loadError}</p>
   if (content === null) return <p className="detail-placeholder">載入中…</p>
@@ -212,7 +234,13 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
             預覽
           </button>
         </div>
-        <button type="button" className="secondary" onClick={() => fileInput.current?.click()}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => fileInput.current?.click()}
+          disabled={readOnly}
+          title={readOnly ? '離線時無法插入圖片' : undefined}
+        >
           插入圖片
         </button>
         <input
@@ -227,16 +255,22 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
             void insertImages(files)
           }}
         />
-        <span className={`save-state ${saveState}`} role="status">
-          {SAVE_LABEL[saveState]}
-        </span>
-        {saveState === 'error' && (
+        {readOnly ? (
+          <span className="save-state offline" role="status">
+            {saveState === 'saved' ? '離線中，僅能閱讀' : '尚未儲存，恢復連線後自動儲存'}
+          </span>
+        ) : (
+          <span className={`save-state ${saveState}`} role="status">
+            {SAVE_LABEL[saveState]}
+          </span>
+        )}
+        {saveState === 'error' && !readOnly && (
           <button type="button" className="secondary" onClick={() => void save()}>
             重試
           </button>
         )}
       </div>
-      {saveError && saveState === 'error' && (
+      {saveError && saveState === 'error' && !readOnly && (
         <p className="message error" role="alert">
           {saveError}
         </p>
@@ -253,14 +287,17 @@ export default function NoteEditor({ noteId, onSaved }: Props) {
           className="editor-input"
           aria-label="Markdown 內容"
           value={content}
+          readOnly={readOnly}
           onChange={(e) => handleChange(e.target.value)}
-          onBlur={() => void save()}
+          onBlur={() => {
+            if (!readOnly) void save()
+          }}
           onPaste={handlePaste}
           onKeyDown={(e) => {
             // Ctrl+S / Cmd+S 立即儲存，不跳出瀏覽器的另存新檔
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
               e.preventDefault()
-              void save()
+              if (!readOnly) void save()
             }
           }}
           placeholder={'# 標題\n\n開始寫 Markdown…'}

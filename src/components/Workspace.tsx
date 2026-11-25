@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { RepoError, repo, type NodeMeta, type NodeType } from '../lib/repo.ts'
+import { formatTime } from '../lib/format.ts'
+import { RepoError, mirror, repo, type NodeMeta, type NodeType } from '../lib/repo.ts'
+import { useMirror } from '../lib/useMirror.ts'
 import ConfirmDialog from './ConfirmDialog.tsx'
 import FileTree from './FileTree.tsx'
 import MoveDialog from './MoveDialog.tsx'
@@ -16,13 +18,33 @@ type DialogState =
   | { kind: 'delete'; node: NodeMeta }
 
 const TYPE_LABEL: Record<NodeType, string> = { folder: '資料夾', note: '筆記' }
+const READ_ONLY_HINT = '離線中，僅能閱讀'
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })
+/** 離線副本的狀態：最後更新時間、更新中、更新失敗（可重試） */
+function MirrorStatus() {
+  const { owner, syncing, syncError } = useMirror()
+  if (syncing) return <p className="toolbar-hint">正在更新離線副本…</p>
+  if (syncError) {
+    return (
+      <p className="toolbar-hint mirror-error">
+        離線副本沒有更新：{syncError}{' '}
+        <button type="button" className="link-button" onClick={() => void mirror.sync()}>
+          重試
+        </button>
+      </p>
+    )
+  }
+  if (owner) return <p className="toolbar-hint">離線副本：{formatTime(owner.syncedAt)} 更新</p>
+  return null
+}
+
+interface Props {
+  /** 只能閱讀（離線 L1）：資料來自這台裝置的副本，不能新增、修改、移動、刪除 */
+  readOnly: boolean
 }
 
 /** 登入後的主畫面：左側資料夾樹，右側顯示選取的項目 */
-export default function Workspace() {
+export default function Workspace({ readOnly }: Props) {
   // 每個資料夾已載入的子項目，key 為資料夾 id，根目錄為 ROOT
   const [childrenOf, setChildrenOf] = useState<Record<string, NodeMeta[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -91,16 +113,16 @@ export default function Workspace() {
     }
   }
 
-  // 恢復連線時重新載入資料夾樹，把離線時載入失敗的部分補回來
+  // 恢復連線（可以寫入）時，改從雲端重新載入資料夾樹，換掉離線時讀到的副本
   const refreshRef = useRef(refresh)
   useEffect(() => {
     refreshRef.current = refresh
   })
+  const wasReadOnly = useRef(readOnly)
   useEffect(() => {
-    const handleOnline = () => void refreshRef.current()
-    window.addEventListener('online', handleOnline)
-    return () => window.removeEventListener('online', handleOnline)
-  }, [])
+    if (wasReadOnly.current && !readOnly) void refreshRef.current()
+    wasReadOnly.current = readOnly
+  }, [readOnly])
 
   async function handleCreate(type: NodeType, parentId: string | null, name: string) {
     const node = await repo.createNode({ parentId, type, name })
@@ -146,16 +168,27 @@ export default function Workspace() {
     <div className="workspace">
       <aside className="sidebar">
         <div className="toolbar">
-          <button type="button" onClick={() => setDialog({ kind: 'create', type: 'folder', parentId: targetParentId })}>
+          <button
+            type="button"
+            disabled={readOnly}
+            title={readOnly ? READ_ONLY_HINT : undefined}
+            onClick={() => setDialog({ kind: 'create', type: 'folder', parentId: targetParentId })}
+          >
             新資料夾
           </button>
-          <button type="button" onClick={() => setDialog({ kind: 'create', type: 'note', parentId: targetParentId })}>
+          <button
+            type="button"
+            disabled={readOnly}
+            title={readOnly ? READ_ONLY_HINT : undefined}
+            onClick={() => setDialog({ kind: 'create', type: 'note', parentId: targetParentId })}
+          >
             新筆記
           </button>
           <button
             type="button"
             className="secondary"
-            disabled={!selected}
+            disabled={!selected || readOnly}
+            title={readOnly ? READ_ONLY_HINT : undefined}
             onClick={() => selected && setDialog({ kind: 'rename', node: selected })}
           >
             重新命名
@@ -163,7 +196,8 @@ export default function Workspace() {
           <button
             type="button"
             className="secondary"
-            disabled={!selected}
+            disabled={!selected || readOnly}
+            title={readOnly ? READ_ONLY_HINT : undefined}
             onClick={() => selected && setDialog({ kind: 'move', node: selected })}
           >
             移動
@@ -171,7 +205,8 @@ export default function Workspace() {
           <button
             type="button"
             className="secondary danger-text"
-            disabled={!selected}
+            disabled={!selected || readOnly}
+            title={readOnly ? READ_ONLY_HINT : undefined}
             onClick={() => selected && setDialog({ kind: 'delete', node: selected })}
           >
             刪除
@@ -180,7 +215,14 @@ export default function Workspace() {
             重新整理
           </button>
         </div>
-        <p className="toolbar-hint">新增到：{targetParentName}</p>
+        {readOnly ? (
+          <p className="toolbar-hint">{READ_ONLY_HINT}，資料來自這台裝置的離線副本。</p>
+        ) : (
+          <>
+            <p className="toolbar-hint">新增到：{targetParentName}</p>
+            <MirrorStatus />
+          </>
+        )}
 
         {error && (
           <p className="message error" role="alert">
@@ -206,11 +248,11 @@ export default function Workspace() {
             <h2 className="detail-title">{selected.name}</h2>
             <p className="detail-meta">最後修改：{formatTime(selected.updated_at)}</p>
             {selected.type === 'note' ? (
-              <NoteEditor key={selected.id} noteId={selected.id} onSaved={replaceNode} />
+              <NoteEditor key={selected.id} noteId={selected.id} readOnly={readOnly} onSaved={replaceNode} />
             ) : (
               <p className="detail-placeholder">
                 {childrenOf[selected.id] ? `裡面有 ${childrenOf[selected.id].length} 個項目。` : ''}
-                按「新資料夾」或「新筆記」會建立在這個資料夾裡。
+                {!readOnly && '按「新資料夾」或「新筆記」會建立在這個資料夾裡。'}
               </p>
             )}
           </>

@@ -26,10 +26,19 @@ const IMAGE_REF = new RegExp(`${IMAGE_PREFIX}(${UUID})`, 'g')
  */
 export type ImageResolver = (id: string) => string | null | undefined
 
+export interface RenderOptions {
+  /** 離線中：還沒取得網址的圖片顯示「離線時無法載入圖片」，而不是載入中的佔位框 */
+  offline?: boolean
+}
+
 // 用 type 而不是 interface，才能當成 markdown-it 的 env（需要索引簽章）
 type RenderEnv = {
   resolveImage?: ImageResolver
+  offline?: boolean
 }
+
+// 固定的文字，不含筆記內容，不會造成 XSS；之後仍會經過 DOMPurify
+const OFFLINE_IMAGE = '<span class="img-offline">離線時無法載入圖片</span>'
 
 // 在 markdown-it 產生 <img> 時就把 img:<id> 換成網址。
 // 這一步一定要在 DOMPurify 之前，否則 DOMPurify 會把不認得的 img: 網址移除（spec 第 5 節）。
@@ -40,8 +49,9 @@ md.renderer.rules.image = (tokens, index, options, env, self) => {
   const src = String(token.attrGet('src') ?? '')
   if (src.startsWith(IMAGE_PREFIX)) {
     const id = src.slice(IMAGE_PREFIX.length)
-    const resolve = (env as RenderEnv | undefined)?.resolveImage
-    const url = IMAGE_ID.test(id) ? resolve?.(id) : null
+    const { resolveImage, offline } = (env as RenderEnv | undefined) ?? {}
+    const url = IMAGE_ID.test(id) ? resolveImage?.(id) : null
+    if (url === undefined && offline) return OFFLINE_IMAGE
     if (url) {
       token.attrSet('src', url)
     } else {
@@ -62,8 +72,8 @@ DOMPurify.addHook('afterSanitizeAttributes', (node) => {
 })
 
 /** 把 Markdown 轉成已過濾、可以安全放進 innerHTML 的 HTML */
-export function renderMarkdown(source: string, resolveImage?: ImageResolver): string {
-  const env: RenderEnv = { resolveImage }
+export function renderMarkdown(source: string, resolveImage?: ImageResolver, options: RenderOptions = {}): string {
+  const env: RenderEnv = { resolveImage, offline: options.offline }
   const html = md.render(source, env)
   return DOMPurify.sanitize(html)
 }

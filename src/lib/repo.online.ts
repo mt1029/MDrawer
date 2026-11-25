@@ -5,6 +5,7 @@ import type { PostgrestError } from '@supabase/supabase-js'
 import {
   RepoError,
   normalizeName,
+  sortNodes,
   validateName,
   type NodeMeta,
   type NodeType,
@@ -18,15 +19,6 @@ const FULL_COLUMNS = `${META_COLUMNS}, content`
 
 // 一次更新太多 id 會讓網址過長，分批送出
 const BATCH_SIZE = 100
-
-const collator = new Intl.Collator('zh-Hant', { numeric: true, sensitivity: 'base' })
-
-function sortNodes(nodes: NodeMeta[]): NodeMeta[] {
-  return nodes.sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
-    return collator.compare(a.name, b.name)
-  })
-}
 
 /** 把 Supabase 的錯誤轉成 RepoError（訊息可直接顯示） */
 function toRepoError(error: PostgrestError, status: number): RepoError {

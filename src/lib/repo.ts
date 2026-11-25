@@ -1,10 +1,15 @@
 // UI 唯一的資料存取介面。UI 只能 import 這個檔案，不直接呼叫 Supabase。
-// 核心層 C 直接讀寫 Supabase；離線 L1、L2 時換成讀寫 IndexedDB 的實作，UI 不用改。
+// 核心層 C 直接讀寫 Supabase；離線 L1 起，連線時讀寫 Supabase 並在 IndexedDB 存一份副本，
+// 斷線時改讀副本（mirror.ts）。L2 再換成先寫本機、背景同步，UI 不用改。
 
+import { createMirror } from './mirror.ts'
 import type { NodeMeta, NodeType, TreeNode } from './nodes.ts'
+import { localRepo, localStore } from './repo.local.ts'
 import { onlineRepo } from './repo.online.ts'
 
 export * from './nodes.ts'
+export type { MirrorState } from './mirror.ts'
+export type { LocalOwner } from './repo.local.ts'
 
 export interface CreateNodeInput {
   parentId: string | null
@@ -39,4 +44,7 @@ export interface Repo {
   downloadImage(id: string): Promise<Blob>
 }
 
-export const repo: Repo = onlineRepo
+/** 這台裝置上的離線副本：登入後啟用、App 開啟與恢復連線時整批更新、登出時清除 */
+export const mirror = createMirror(onlineRepo, localRepo, localStore, () => navigator.onLine)
+
+export const repo: Repo = mirror.repo

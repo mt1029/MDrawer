@@ -274,6 +274,21 @@ button.link {
   color: var(--muted);
 }
 
+.toolbar-hint.mirror-error {
+  color: var(--warning);
+}
+
+/* 看起來像連結的小按鈕（文字中的「重試」） */
+button.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .detail {
   display: flex;
   flex-direction: column;
@@ -341,6 +356,10 @@ button.link {
 
 .save-state.error {
   color: var(--error);
+}
+
+.save-state.offline {
+  color: var(--warning);
 }
 
 .image-status {
@@ -440,6 +459,22 @@ button.link {
 
 .markdown img.img-missing {
   border: 1px dashed var(--border);
+}
+
+/* 離線時還沒取得網址的圖片 */
+.markdown .img-offline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12rem;
+  height: 6rem;
+  padding: 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  vertical-align: middle;
 }
 
 .markdown :is(ul, ol) {
