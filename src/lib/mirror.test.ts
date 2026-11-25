@@ -1,140 +1,82 @@
-// 離線 L1：本機副本（IndexedDB）與「連線讀雲端、離線讀副本」的切換。
-// 用 fake-indexeddb 模擬瀏覽器的 IndexedDB，雲端用記憶體版的假 repo。
+// 離線 L2 的帳號、登出與排程（mirror.ts）。雲端用最簡單的記憶體版。
 import 'fake-indexeddb/auto'
+import { openDB } from 'idb'
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { Cloud, CloudRow } from './cloud.ts'
+import { createDbHandle, type DbHandle } from './localDb.ts'
 import { createMirror, type Mirror } from './mirror.ts'
-import { RepoError, sortNodes, type NodeMeta, type TreeNode } from './nodes.ts'
-import { localRepo, localStore } from './repo.local.ts'
+import { RepoError } from './nodes.ts'
 import type { Repo } from './repo.ts'
 
 const USER_A = 'aaaaaaaa-0000-4000-8000-00000000000a'
 const USER_B = 'bbbbbbbb-0000-4000-8000-00000000000b'
 
-/** 記憶體版的雲端。network 為 true 時每個操作都丟出連線錯誤 */
-function fakeCloud() {
-  const rows = new Map<string, TreeNode>()
-  const cloud = {
-    rows,
-    network: true,
-    /** 設定後 listAll 會等到 release() 才回傳（模擬下載很慢） */
-    hold: null as null | { release: () => void; promise: Promise<void> },
-  }
-  let seq = 0
-  const now = () => `2026-11-25T00:00:${String(seq++).padStart(2, '0')}Z`
-  const meta = ({ content: _content, ...m }: TreeNode): NodeMeta => m
-  const check = () => {
-    if (!cloud.network) throw new RepoError('network', '無法連線到伺服器，請確認網路後再試。')
-  }
-  const live = (id: string) => {
+let rows: Map<string, CloudRow>
+let online: boolean
+let holdPull: Promise<void> | null
+let clock: number
+
+const cloud: Cloud = {
+  async pullSince(since) {
+    if (!online) throw new RepoError('network', '無法連線')
+    const result = [...rows.values()].filter((r) => !since || Date.parse(r.updated_at) >= Date.parse(since)).map((r) => ({ ...r }))
+    if (holdPull) await holdPull
+    return result
+  },
+  async getRows(ids) {
+    return ids.flatMap((id) => (rows.has(id) ? [{ ...rows.get(id)! }] : []))
+  },
+  async insertIfAbsent(row) {
+    if (!online) throw new RepoError('network', '無法連線')
+    if (rows.has(row.id)) return null
+    const time = new Date((clock += 1000)).toISOString()
+    const created = { ...row, version: 1, created_at: time, updated_at: time, deleted_at: null }
+    rows.set(row.id, created)
+    return { ...created }
+  },
+  async updateIfVersion(id, changes, version) {
+    if (!online) throw new RepoError('network', '無法連線')
     const row = rows.get(id)
-    if (!row) throw new RepoError('not_found', '找不到這個項目。')
-    return row
-  }
-  const touch = (row: TreeNode) => {
-    row.version++
-    row.updated_at = now()
-  }
-
-  const repo: Repo = {
-    async listChildren(parentId) {
-      check()
-      return [...rows.values()].filter((r) => r.parent_id === parentId).map(meta)
-    },
-    async getNode(id) {
-      check()
-      const row = rows.get(id)
-      return row ? { ...row } : null
-    },
-    async listAll() {
-      check()
-      const snapshot = [...rows.values()].map((r) => ({ ...r }))
-      if (cloud.hold) await cloud.hold.promise
-      return snapshot
-    },
-    async createNode(input) {
-      check()
-      const time = now()
-      const row: TreeNode = {
-        id: crypto.randomUUID(),
-        parent_id: input.parentId,
-        type: input.type,
-        name: input.name,
-        content: input.type === 'note' ? (input.content ?? '') : null,
-        version: 1,
-        created_at: time,
-        updated_at: time,
-      }
-      rows.set(row.id, row)
-      return meta(row)
-    },
-    async updateNode(id, patch) {
-      check()
-      const row = live(id)
-      if (patch.name !== undefined) row.name = patch.name
-      if (patch.content !== undefined) row.content = patch.content
-      touch(row)
-      return meta(row)
-    },
-    async moveNode(id, newParentId) {
-      check()
-      const row = live(id)
-      row.parent_id = newParentId
-      touch(row)
-      return meta(row)
-    },
-    async deleteNode(id) {
-      check()
-      const queue = [id]
-      while (queue.length > 0) {
-        const current = queue.shift()!
-        rows.delete(current)
-        for (const row of rows.values()) if (row.parent_id === current) queue.push(row.id)
-      }
-    },
-    async uploadImage() {
-      check()
-      return crypto.randomUUID()
-    },
-    async getImageUrls(ids) {
-      check()
-      return Object.fromEntries(ids.map((id) => [id, `https://example.test/${id}`]))
-    },
-    async downloadImage() {
-      check()
-      return new Blob()
-    },
-  }
-
-  function add(partial: Partial<TreeNode> & Pick<TreeNode, 'type' | 'name'>): TreeNode {
-    const time = now()
-    const row: TreeNode = {
-      id: crypto.randomUUID(),
-      parent_id: null,
-      content: partial.type === 'note' ? '' : null,
-      version: 1,
-      created_at: time,
-      updated_at: time,
-      ...partial,
-    }
-    rows.set(row.id, row)
-    return row
-  }
-
-  function holdListAll() {
-    let release!: () => void
-    const promise = new Promise<void>((resolve) => (release = resolve))
-    cloud.hold = { release, promise }
-    return () => {
-      cloud.hold = null
-      release()
-    }
-  }
-
-  return { cloud, repo, add, holdListAll }
+    if (!row || row.version !== version) return null
+    const next = { ...row, ...changes, version: row.version + 1, updated_at: new Date((clock += 1000)).toISOString() }
+    rows.set(id, next)
+    return { ...next }
+  },
 }
 
-/** 讓背景寫入副本的工作（不等待的 Promise）跑完 */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+// 圖片用的線上版 repo：只記錄有沒有被呼叫
+let imageCalls = 0
+const onlineImages = {
+  uploadImage: async () => {
+    imageCalls++
+    return crypto.randomUUID()
+  },
+  getImageUrls: async () => {
+    imageCalls++
+    return {}
+  },
+  downloadImage: async () => {
+    imageCalls++
+    return new Blob()
+  },
+} as unknown as Repo
+
+let dbCount = 0
+let db: DbHandle
+let mirror: Mirror
+
+function makeMirror(handle: DbHandle = db) {
+  return createMirror({ db: handle, cloud, online: onlineImages, isOnline: () => online, intervalMs: 0, debounceMs: 0, lock: (task) => task() })
+}
+
+async function stores(handle: DbHandle = db) {
+  const database = await handle()
+  return {
+    nodes: await database.getAll('nodes'),
+    pending: await database.getAll('pending'),
+    meta: await database.getAllKeys('meta'),
+  }
+}
 
 async function expectRepoError(promise: Promise<unknown>, kind: RepoError['kind']) {
   const error = await promise.then(
@@ -145,284 +87,188 @@ async function expectRepoError(promise: Promise<unknown>, kind: RepoError['kind'
   expect((error as RepoError).kind).toBe(kind)
 }
 
-let fake: ReturnType<typeof fakeCloud>
-let online: boolean
-let mirror: Mirror
-
-/** 建立樹：課程/第一週/筆記、最上層的首頁 */
-function seed() {
-  const course = fake.add({ type: 'folder', name: '課程' })
-  const week = fake.add({ type: 'folder', name: '第一週', parent_id: course.id })
-  const note = fake.add({ type: 'note', name: '筆記', parent_id: week.id, content: '# 第一週' })
-  const home = fake.add({ type: 'note', name: '首頁', content: '歡迎' })
-  return { course, week, note, home }
+/** 帳號 A 登入並完成第一次同步 */
+async function signInA(m: Mirror = mirror) {
+  await m.load()
+  await m.activate(USER_A, 'a@example.com', true)
+  await m.sync()
 }
 
-beforeEach(async () => {
-  await localStore.clear()
-  fake = fakeCloud()
+beforeEach(() => {
+  rows = new Map()
   online = true
-  mirror = createMirror(fake.repo, localRepo, localStore, () => online)
-  await mirror.load()
+  holdPull = null
+  clock = Date.parse('2026-11-25T00:00:00Z')
+  imageCalls = 0
+  db = createDbHandle(`test-mirror-${++dbCount}`)
+  mirror = makeMirror()
 })
 
-describe('整批下載後，離線可以閱讀全部資料', () => {
-  it('離線時改讀副本：資料夾在前、依名稱排序，筆記內容完整', async () => {
-    const { course, week, note } = seed()
-    fake.add({ type: 'folder', name: 'A 資料夾' })
+describe('第一次同步', () => {
+  it('完成前不能讀寫（避免畫面看到空的或別人的資料）；完成後記下擁有者', async () => {
+    await mirror.load()
     await mirror.activate(USER_A, 'a@example.com', true)
+    await expectRepoError(mirror.repo.listChildren(null), 'offline')
     await mirror.sync()
     expect(mirror.getState().owner).toMatchObject({ userId: USER_A, email: 'a@example.com' })
-
-    // 排序規則與線上版相同（sortNodes）：資料夾在前，再依名稱
-    const expected = sortNodes(await fake.repo.listChildren(null)).map((n) => n.name)
-    expect(expected.at(-1)).toBe('首頁')
-
-    online = false
-    fake.cloud.network = false
-    const root = await mirror.repo.listChildren(null)
-    expect(root.map((n) => n.name)).toEqual(expected)
-    expect(root.every((n) => !('content' in n) && !('parent_key' in n))).toBe(true)
-    expect((await mirror.repo.listChildren(course.id)).map((n) => n.id)).toEqual([week.id])
-    expect(await mirror.repo.getNode(note.id)).toEqual(fake.cloud.rows.get(note.id))
-    expect(await mirror.repo.listAll()).toHaveLength(5)
+    expect(await mirror.repo.listChildren(null)).toEqual([])
   })
 
-  it('再次下載會換成最新的雲端資料（雲端刪掉的也從副本移除）', async () => {
-    const { home } = seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    fake.cloud.rows.delete(home.id)
-    fake.add({ type: 'note', name: '新筆記' })
-    await mirror.sync()
-
+  it('離線時寫入本機，恢復連線後同步；修改後通知畫面待同步的筆數', async () => {
+    await signInA()
     online = false
-    expect((await mirror.repo.listChildren(null)).map((n) => n.name)).toEqual(['課程', '新筆記'])
-    expect(await mirror.repo.getNode(home.id)).toBeNull()
+    await mirror.repo.createNode({ parentId: null, type: 'note', name: '離線寫的' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(mirror.getState().pendingCount).toBe(1)
+    await mirror.sync() // 離線時不會嘗試
+    expect(rows.size).toBe(0)
+    online = true
+    await mirror.sync()
+    expect(rows.size).toBe(1)
+    expect(mirror.getState().pendingCount).toBe(0)
   })
 
-  it('下載失敗時保留原本的副本，並記下原因', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
+  it('同步改到本機資料時通知畫面（其他裝置新增的項目）', async () => {
+    await signInA()
+    const changed: string[][] = []
+    mirror.onChange((ids) => changed.push(ids))
+    const id = crypto.randomUUID()
+    rows.set(id, { id, parent_id: null, type: 'note', name: '別台新增的', content: '', version: 1, created_at: '2026-11-25T01:00:00Z', updated_at: '2026-11-25T01:00:00Z', deleted_at: null })
     await mirror.sync()
-    fake.cloud.network = false
-    await mirror.sync()
-    expect(mirror.getState().syncError).toMatch('無法連線')
-    expect(mirror.getState().syncing).toBe(false)
-
-    online = false
-    expect(await mirror.repo.listChildren(null)).toHaveLength(2)
-  })
-})
-
-describe('離線時只能閱讀', () => {
-  beforeEach(async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    online = false
+    expect(changed).toEqual([[id]])
   })
 
-  it('新增、修改、移動、刪除與圖片一律回絕，而且沒有送到雲端', async () => {
-    const before = JSON.stringify([...fake.cloud.rows.values()])
-    const [any] = await mirror.repo.listChildren(null)
-    await expectRepoError(mirror.repo.createNode({ parentId: null, type: 'note', name: 'x' }), 'offline')
-    await expectRepoError(mirror.repo.updateNode(any.id, { content: 'x' }), 'offline')
-    await expectRepoError(mirror.repo.moveNode(any.id, null), 'offline')
-    await expectRepoError(mirror.repo.deleteNode(any.id), 'offline')
+  it('圖片只在連線且已登入時使用雲端', async () => {
+    await signInA()
+    await mirror.repo.getImageUrls([crypto.randomUUID()])
+    expect(imageCalls).toBe(1)
+    online = false
     await expectRepoError(mirror.repo.uploadImage(new Blob()), 'offline')
-    await expectRepoError(mirror.repo.getImageUrls([crypto.randomUUID()]), 'offline')
-    await expectRepoError(mirror.repo.downloadImage(crypto.randomUUID()), 'offline')
-    expect(JSON.stringify([...fake.cloud.rows.values()])).toBe(before)
-  })
-
-  it('離線時不會嘗試整批下載', async () => {
-    await mirror.sync()
-    expect(mirror.getState().syncing).toBe(false)
-    expect(mirror.getState().syncError).toBeNull()
+    expect(imageCalls).toBe(1)
   })
 })
 
-describe('連線但連不到伺服器', () => {
-  it('讀取改用副本', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    fake.cloud.network = false // 瀏覽器以為有連線，實際上連不到
-    expect(await mirror.repo.listChildren(null)).toHaveLength(2)
-  })
-
-  it('沒有副本時回報原本的連線錯誤', async () => {
-    await mirror.activate(USER_A, 'a@example.com', true)
-    fake.cloud.network = false
-    await expectRepoError(mirror.repo.listChildren(null), 'network')
-  })
-
-  it('不是連線問題的錯誤照常回報，不改讀副本', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    fake.repo.listChildren = () => Promise.reject(new RepoError('unknown', '伺服器錯誤'))
-    await expectRepoError(mirror.repo.listChildren(null), 'unknown')
-  })
-
-  it('寫入不改用副本，回報連線錯誤', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    fake.cloud.network = false
-    await expectRepoError(mirror.repo.createNode({ parentId: null, type: 'note', name: 'x' }), 'network')
-  })
-})
-
-describe('沒有副本時離線', () => {
-  it('讀取回報「還沒有離線副本」', async () => {
-    await mirror.activate(USER_A, 'a@example.com', true)
-    online = false
-    await expectRepoError(mirror.repo.listChildren(null), 'offline')
-  })
-
-  it('還沒啟用帳號時不讀副本', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    const other = createMirror(fake.repo, localRepo, localStore, () => false)
-    await other.load()
-    await expectRepoError(other.repo.listChildren(null), 'offline')
-  })
-})
-
-describe('連線時的修改同步寫進副本', () => {
-  it('新增、改內容、改名、移動、刪除後，離線讀到的是最新的樣子', async () => {
-    const { course, week, note, home } = seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-
-    const created = await mirror.repo.createNode({ parentId: course.id, type: 'note', name: '新筆記', content: '新內容' })
-    await mirror.repo.updateNode(note.id, { content: '# 改過的內容' })
-    await mirror.repo.updateNode(home.id, { name: '首頁（改名）' })
-    await mirror.repo.moveNode(home.id, course.id)
-    await mirror.repo.deleteNode(week.id) // 連同裡面的筆記
-    await settle()
-
-    online = false
-    expect((await mirror.repo.listChildren(null)).map((n) => n.name)).toEqual(['課程'])
-    const inCourse = await mirror.repo.listChildren(course.id)
-    expect(inCourse.map((n) => n.name)).toEqual(['首頁（改名）', '新筆記'])
-    expect((await mirror.repo.getNode(created.id))?.content).toBe('新內容')
-    expect((await mirror.repo.getNode(home.id))?.content).toBe('歡迎') // 改名、移動不影響內容
-    expect(await mirror.repo.getNode(week.id)).toBeNull()
-    expect(await mirror.repo.getNode(note.id)).toBeNull()
-    // 版本號用雲端回傳的，不是自己加
-    expect((await mirror.repo.getNode(home.id))?.version).toBe(fake.cloud.rows.get(home.id)?.version)
-  })
-
-  it('開啟筆記時把雲端最新的內容寫進副本；雲端已刪除的從副本移除', async () => {
-    const { note, home } = seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-    fake.cloud.rows.get(note.id)!.content = '別台裝置改的'
-    fake.cloud.rows.delete(home.id)
-    await mirror.repo.getNode(note.id)
-    await mirror.repo.getNode(home.id)
-    await settle()
-
-    online = false
-    expect((await mirror.repo.getNode(note.id))?.content).toBe('別台裝置改的')
-    expect(await mirror.repo.getNode(home.id)).toBeNull()
-  })
-
-  it('下載期間的修改不會被下載到的舊資料蓋掉，刪掉的也不會加回來', async () => {
-    const { week, note, home } = seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    const release = fake.holdListAll()
-    const syncing = mirror.sync() // 先拿到舊資料，等 release 才寫進副本
-    await settle()
-    expect(mirror.getState().syncing).toBe(true)
-
-    await mirror.repo.updateNode(home.id, { content: '下載期間改的' })
-    await mirror.repo.deleteNode(week.id) // 裡面的筆記也一起刪
-    await settle()
-    release()
-    await syncing
-
-    online = false
-    expect((await mirror.repo.getNode(home.id))?.content).toBe('下載期間改的')
-    expect(await mirror.repo.getNode(week.id)).toBeNull()
-    expect(await mirror.repo.getNode(note.id)).toBeNull()
-    expect((await mirror.repo.listAll()).map((n) => n.name).sort()).toEqual(['課程', '首頁'])
-  })
-})
-
-describe('帳號與登出', () => {
-  it('換成別的帳號時先清掉前一個帳號的副本', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
-
+describe('帳號與登出（spec 第 6、7 節）', () => {
+  it('換成別的帳號時，先清掉前一個帳號的資料', async () => {
+    await signInA()
+    await mirror.repo.createNode({ parentId: null, type: 'note', name: 'A 的筆記' })
     await mirror.activate(USER_B, 'b@example.com', true)
-    expect(mirror.getState().owner).toBeNull()
-    expect(await localStore.getOwner()).toBeNull()
-    expect(await localRepo.listAll()).toEqual([])
-    online = false
+    expect(await stores()).toEqual({ nodes: [], pending: [], meta: [] })
     await expectRepoError(mirror.repo.listChildren(null), 'offline')
   })
 
-  it('登出時清除副本（spec 第 7 節）', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
+  it('自己按登出：清空本機資料與佇列', async () => {
+    await signInA()
+    online = false
+    await mirror.repo.createNode({ parentId: null, type: 'note', name: '沒同步的' })
+    expect(await mirror.countPending()).toBe(1) // 畫面據此先警告
     await mirror.signOut()
-
-    expect(mirror.getState()).toMatchObject({ owner: null, activeUserId: null })
-    expect(await localStore.getOwner()).toBeNull()
-    expect(await localRepo.listAll()).toEqual([])
+    expect(await stores()).toEqual({ nodes: [], pending: [], meta: [] })
+    expect(mirror.getState()).toMatchObject({ owner: null, activeUserId: null, pendingCount: 0 })
   })
 
-  it('下載途中登出：下載完成後也不會把資料寫回來', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    const release = fake.holdListAll()
-    const syncing = mirror.sync()
-    await settle()
-    await mirror.signOut()
-    release()
-    await syncing
-
-    expect(await localStore.getOwner()).toBeNull()
-    expect(await localRepo.listAll()).toEqual([])
-    expect(mirror.getState().syncing).toBe(false)
+  it('被強制登出、沒有未同步的修改：清除', async () => {
+    await signInA()
+    await mirror.handleSignedOut()
+    expect(await stores()).toEqual({ nodes: [], pending: [], meta: [] })
   })
 
-  it('同一個帳號重新開啟 App 時保留副本', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
-    await mirror.sync()
+  it('被強制登出、還有未同步的修改：保留並標記；同一個帳號重新登入後推送', async () => {
+    await signInA()
+    online = false
+    const note = await mirror.repo.createNode({ parentId: null, type: 'note', name: '離線寫的' })
+    await mirror.handleSignedOut()
+    expect(mirror.getState().owner).toMatchObject({ userId: USER_A, signedOut: true })
+    expect(mirror.getState().activeUserId).toBeNull()
+    expect((await stores()).pending).toHaveLength(1)
 
-    const reopened = createMirror(fake.repo, localRepo, localStore, () => false)
+    // 重新開啟 App 也記得
+    const reopened = makeMirror()
     await reopened.load()
-    expect(reopened.getState().owner?.userId).toBe(USER_A)
+    expect(reopened.getState()).toMatchObject({ owner: { signedOut: true }, pendingCount: 1 })
+
+    online = true
     await reopened.activate(USER_A, 'a@example.com', true)
-    expect(await reopened.repo.listChildren(null)).toHaveLength(2)
+    expect(reopened.getState().owner?.signedOut).toBe(false)
+    await reopened.sync()
+    expect(rows.get(note.id)?.name).toBe('離線寫的')
   })
 
-  it('沒有有效登入（離線時權杖過期）：就算連線也只讀副本、不能寫，也不下載', async () => {
-    seed()
-    await mirror.activate(USER_A, 'a@example.com', true)
+  it('被強制登出後改用別的帳號：前一個帳號留下的修改被清除', async () => {
+    await signInA()
+    online = false
+    await mirror.repo.createNode({ parentId: null, type: 'note', name: '離線寫的' })
+    await mirror.handleSignedOut()
+    online = true
+    await mirror.signOut() // 畫面確認「刪除這些修改並繼續」
+    await mirror.activate(USER_B, 'b@example.com', true)
     await mirror.sync()
+    expect((await stores()).pending).toEqual([])
+    expect(await mirror.repo.listAll()).toEqual([])
+  })
 
-    const reopened = createMirror(fake.repo, localRepo, localStore, () => true)
+  it('沒有有效登入（離線時權杖過期）：照樣在本機讀寫，不推送；登入恢復後推送', async () => {
+    await signInA()
+    const reopened = makeMirror()
     await reopened.load()
     await reopened.activate(USER_A, 'a@example.com', false)
-    fake.repo.listChildren = () => Promise.reject(new Error('沒有登入時不該讀雲端'))
-    expect(await reopened.repo.listChildren(null)).toHaveLength(2)
-    await expectRepoError(reopened.repo.createNode({ parentId: null, type: 'note', name: 'x' }), 'offline')
+    const note = await reopened.repo.createNode({ parentId: null, type: 'note', name: '權杖過期時寫的' })
     await reopened.sync()
-    expect(reopened.getState().syncing).toBe(false)
-
-    // 換到新的權杖後恢復正常
+    expect(rows.has(note.id)).toBe(false)
     await reopened.activate(USER_A, 'a@example.com', true)
-    const node = await reopened.repo.createNode({ parentId: null, type: 'note', name: '恢復後新增' })
-    expect(fake.cloud.rows.has(node.id)).toBe(true)
+    await reopened.sync()
+    expect(rows.has(note.id)).toBe(true)
+  })
+
+  it('同步途中登出：下載到的資料不會寫回已清空的本機資料庫', async () => {
+    await signInA()
+    const id = crypto.randomUUID()
+    rows.set(id, { id, parent_id: null, type: 'note', name: '下載中', content: '', version: 1, created_at: '2026-11-25T01:00:00Z', updated_at: '2026-11-25T01:00:00Z', deleted_at: null })
+    let release!: () => void
+    holdPull = new Promise((resolve) => (release = resolve))
+    const syncing = mirror.sync()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await mirror.signOut()
+    release()
+    await syncing
+    expect(await stores()).toEqual({ nodes: [], pending: [], meta: [] })
+  })
+})
+
+describe('從 L1 升級', () => {
+  it('L1（資料庫版本 1）的副本保留，加上待同步佇列；第一次同步補上雲端已刪除的項目', async () => {
+    const name = `test-mirror-v1-${++dbCount}`
+    const kept = crypto.randomUUID()
+    const removed = crypto.randomUUID()
+    const row = (id: string, title: string) => ({
+      id,
+      parent_id: null,
+      type: 'note' as const,
+      name: title,
+      content: '',
+      version: 1,
+      created_at: '2026-11-25T00:00:00Z',
+      updated_at: '2026-11-25T00:00:00Z',
+    })
+    const v1 = await openDB(name, 1, {
+      upgrade(database) {
+        database.createObjectStore('nodes', { keyPath: 'id' }).createIndex('by_parent', 'parent_key')
+        database.createObjectStore('meta')
+      },
+    })
+    await v1.put('nodes', { ...row(kept, '保留的'), parent_key: 'root' })
+    await v1.put('nodes', { ...row(removed, '雲端已刪除的'), parent_key: 'root' })
+    await v1.put('meta', { userId: USER_A, email: 'a@example.com', syncedAt: '2026-11-25T00:00:00Z' }, 'owner')
+    v1.close()
+    rows.set(kept, { ...row(kept, '保留的'), deleted_at: null })
+    rows.set(removed, { ...row(removed, '雲端已刪除的'), version: 2, deleted_at: '2026-11-25T00:30:00Z' })
+
+    const upgraded = makeMirror(createDbHandle(name))
+    await upgraded.load()
+    await upgraded.activate(USER_A, 'a@example.com', true)
+    expect((await upgraded.repo.listChildren(null)).map((n) => n.name)).toEqual(['保留的', '雲端已刪除的'])
+    expect(await upgraded.countPending()).toBe(0)
+    await upgraded.sync()
+    expect((await upgraded.repo.listChildren(null)).map((n) => n.name)).toEqual(['保留的'])
   })
 })

@@ -18,33 +18,50 @@ type DialogState =
   | { kind: 'delete'; node: NodeMeta }
 
 const TYPE_LABEL: Record<NodeType, string> = { folder: '資料夾', note: '筆記' }
-const READ_ONLY_HINT = '離線中，僅能閱讀'
+/** 同步狀態：等待同步的筆數、最後同步時間、失敗原因、衝突副本 */
+function SyncStatus() {
+  const { owner, syncing, syncError, pendingCount, failures, conflicts } = useMirror()
+  let status: string
+  if (pendingCount > 0) status = `${pendingCount} 項修改等待同步${syncing ? '，同步中…' : ''}`
+  else if (syncing) status = '同步中…'
+  else status = owner ? `已同步：${formatTime(owner.syncedAt)}` : ''
 
-/** 離線副本的狀態：最後更新時間、更新中、更新失敗（可重試） */
-function MirrorStatus() {
-  const { owner, syncing, syncError } = useMirror()
-  if (syncing) return <p className="toolbar-hint">正在更新離線副本…</p>
-  if (syncError) {
-    return (
-      <p className="toolbar-hint mirror-error">
-        離線副本沒有更新：{syncError}{' '}
-        <button type="button" className="link-button" onClick={() => void mirror.sync()}>
-          重試
-        </button>
-      </p>
-    )
-  }
-  if (owner) return <p className="toolbar-hint">離線副本：{formatTime(owner.syncedAt)} 更新</p>
-  return null
+  return (
+    <>
+      {status && <p className="toolbar-hint">{status}</p>}
+      {syncError && !syncing && (
+        <p className="toolbar-hint sync-warning">
+          同步失敗：{syncError}{' '}
+          <button type="button" className="link-button" onClick={() => void mirror.sync()}>
+            重試
+          </button>
+        </p>
+      )}
+      {failures.length > 0 && (
+        <p className="toolbar-hint sync-warning">
+          {failures.length} 項修改無法同步：{failures[0].message}
+        </p>
+      )}
+      {conflicts.length > 0 && (
+        <p className="toolbar-hint sync-warning" role="status">
+          有 {conflicts.length} 篇筆記在兩台裝置都改過。雲端的版本保留在原筆記，這台的版本另存為
+          {conflicts.map((name) => `「${name}」`).join('')}，請自行合併。{' '}
+          <button type="button" className="link-button" onClick={() => mirror.dismissConflicts()}>
+            知道了
+          </button>
+        </p>
+      )}
+    </>
+  )
 }
 
 interface Props {
-  /** 只能閱讀（離線 L1）：資料來自這台裝置的副本，不能新增、修改、移動、刪除 */
-  readOnly: boolean
+  /** 可以連到雲端（連線且已登入）：才能插入、顯示圖片 */
+  cloud: boolean
 }
 
 /** 登入後的主畫面：左側資料夾樹，右側顯示選取的項目 */
-export default function Workspace({ readOnly }: Props) {
+export default function Workspace({ cloud }: Props) {
   // 每個資料夾已載入的子項目，key 為資料夾 id，根目錄為 ROOT
   const [childrenOf, setChildrenOf] = useState<Record<string, NodeMeta[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -113,16 +130,12 @@ export default function Workspace({ readOnly }: Props) {
     }
   }
 
-  // 恢復連線（可以寫入）時，改從雲端重新載入資料夾樹，換掉離線時讀到的副本
+  // 同步改到本機資料（其他裝置的修改、衝突副本、撞名改名）時，重新讀取已展開的資料夾
   const refreshRef = useRef(refresh)
   useEffect(() => {
     refreshRef.current = refresh
   })
-  const wasReadOnly = useRef(readOnly)
-  useEffect(() => {
-    if (wasReadOnly.current && !readOnly) void refreshRef.current()
-    wasReadOnly.current = readOnly
-  }, [readOnly])
+  useEffect(() => mirror.onChange(() => void refreshRef.current()), [])
 
   async function handleCreate(type: NodeType, parentId: string | null, name: string) {
     const node = await repo.createNode({ parentId, type, name })
@@ -168,27 +181,16 @@ export default function Workspace({ readOnly }: Props) {
     <div className="workspace">
       <aside className="sidebar">
         <div className="toolbar">
-          <button
-            type="button"
-            disabled={readOnly}
-            title={readOnly ? READ_ONLY_HINT : undefined}
-            onClick={() => setDialog({ kind: 'create', type: 'folder', parentId: targetParentId })}
-          >
+          <button type="button" onClick={() => setDialog({ kind: 'create', type: 'folder', parentId: targetParentId })}>
             新資料夾
           </button>
-          <button
-            type="button"
-            disabled={readOnly}
-            title={readOnly ? READ_ONLY_HINT : undefined}
-            onClick={() => setDialog({ kind: 'create', type: 'note', parentId: targetParentId })}
-          >
+          <button type="button" onClick={() => setDialog({ kind: 'create', type: 'note', parentId: targetParentId })}>
             新筆記
           </button>
           <button
             type="button"
             className="secondary"
-            disabled={!selected || readOnly}
-            title={readOnly ? READ_ONLY_HINT : undefined}
+            disabled={!selected}
             onClick={() => selected && setDialog({ kind: 'rename', node: selected })}
           >
             重新命名
@@ -196,8 +198,7 @@ export default function Workspace({ readOnly }: Props) {
           <button
             type="button"
             className="secondary"
-            disabled={!selected || readOnly}
-            title={readOnly ? READ_ONLY_HINT : undefined}
+            disabled={!selected}
             onClick={() => selected && setDialog({ kind: 'move', node: selected })}
           >
             移動
@@ -205,8 +206,7 @@ export default function Workspace({ readOnly }: Props) {
           <button
             type="button"
             className="secondary danger-text"
-            disabled={!selected || readOnly}
-            title={readOnly ? READ_ONLY_HINT : undefined}
+            disabled={!selected}
             onClick={() => selected && setDialog({ kind: 'delete', node: selected })}
           >
             刪除
@@ -215,14 +215,8 @@ export default function Workspace({ readOnly }: Props) {
             重新整理
           </button>
         </div>
-        {readOnly ? (
-          <p className="toolbar-hint">{READ_ONLY_HINT}，資料來自這台裝置的離線副本。</p>
-        ) : (
-          <>
-            <p className="toolbar-hint">新增到：{targetParentName}</p>
-            <MirrorStatus />
-          </>
-        )}
+        <p className="toolbar-hint">新增到：{targetParentName}</p>
+        <SyncStatus />
 
         {error && (
           <p className="message error" role="alert">
@@ -248,11 +242,11 @@ export default function Workspace({ readOnly }: Props) {
             <h2 className="detail-title">{selected.name}</h2>
             <p className="detail-meta">最後修改：{formatTime(selected.updated_at)}</p>
             {selected.type === 'note' ? (
-              <NoteEditor key={selected.id} noteId={selected.id} readOnly={readOnly} onSaved={replaceNode} />
+              <NoteEditor key={selected.id} noteId={selected.id} cloud={cloud} onSaved={replaceNode} />
             ) : (
               <p className="detail-placeholder">
                 {childrenOf[selected.id] ? `裡面有 ${childrenOf[selected.id].length} 個項目。` : ''}
-                {!readOnly && '按「新資料夾」或「新筆記」會建立在這個資料夾裡。'}
+                按「新資料夾」或「新筆記」會建立在這個資料夾裡。
               </p>
             )}
           </>

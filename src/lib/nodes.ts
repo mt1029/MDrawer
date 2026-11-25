@@ -24,7 +24,8 @@ export type RepoErrorKind =
   | 'invalid_move' // 移到自己、自己的子孫或不是資料夾的地方
   | 'not_found' // 找不到，或已被刪除
   | 'network' // 連不到伺服器
-  | 'offline' // 離線中，這個操作需要網路（離線 L1 只能閱讀）
+  | 'offline' // 離線中，這個操作需要網路（例如圖片）
+  | 'conflict' // 編輯期間這篇被同步改過，這次的內容已另存為衝突副本
   | 'unknown'
 
 /** repo 丟出的錯誤。message 是可以直接顯示給使用者的中文 */
@@ -63,4 +64,26 @@ export function validateName(name: string): string | null {
   if (/[/\\]/.test(name)) return '名稱不能包含 / 或 \\。'
   if (name.includes('..')) return '名稱不能包含連續兩個點（..）。'
   return null
+}
+
+/** 把名稱截短到 max 個字（以 code point 計算，與資料庫一致） */
+function truncate(name: string, max: number): string {
+  const chars = [...name]
+  return chars.length <= max ? name : chars.slice(0, max).join('').trimEnd()
+}
+
+/** 撞名時的新名稱：「名稱 (2)」。超過長度上限時截短原名 */
+export function numberedName(name: string, n: number): string {
+  const suffix = ` (${n})`
+  return truncate(name, MAX_NAME_LENGTH - suffix.length) + suffix
+}
+
+/** 衝突副本的名稱：「名稱（衝突副本 2026-11-25 14:30）」（spec 第 6 節） */
+export function conflictCopyName(name: string, date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const stamp =
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  const suffix = `（衝突副本 ${stamp}）`
+  return truncate(name, MAX_NAME_LENGTH - suffix.length) + suffix
 }

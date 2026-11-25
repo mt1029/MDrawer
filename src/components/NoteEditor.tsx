@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { ImageError, compressImage, formatBytes, type ImageFormat } from '../lib/image.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
-import { RepoError, repo, type NodeMeta } from '../lib/repo.ts'
+import { RepoError, mirror, repo, type NodeMeta } from '../lib/repo.ts'
 import { useImageUrls } from '../lib/useImageUrls.ts'
 
 // 停止輸入多久後自動儲存
@@ -22,20 +22,22 @@ const SAVE_LABEL: Record<SaveState, string> = {
 
 interface Props {
   noteId: string
-  /** 只能閱讀（離線 L1）：不能輸入、不能插入圖片，恢復後自動補存離線前沒存到的內容 */
-  readOnly: boolean
-  /** 儲存成功後回傳最新的資料（version、updated_at 已由資料庫更新） */
+  /** 可以連到雲端（連線且已登入）：才能插入、顯示圖片。文字隨時都能編輯，先存在這台裝置 */
+  cloud: boolean
+  /** 儲存後回傳最新的資料 */
   onSaved: (node: NodeMeta) => void
 }
 
-/** 筆記編輯器：左邊寫 Markdown，右邊即時預覽；停止輸入一秒後自動儲存 */
-export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
+/** 筆記編輯器：左邊寫 Markdown，右邊即時預覽；停止輸入一秒後自動儲存到這台裝置，再在背景同步 */
+export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [view, setView] = useState<View>('edit')
   const [imageStatus, setImageStatus] = useState<ImageStatus | null>(null)
+  // 衝突時的說明（這次的內容已另存為衝突副本）
+  const [notice, setNotice] = useState<string | null>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -81,11 +83,22 @@ export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
         const text = latest.current
         if (mounted.current) setSaveState('saving')
         try {
-          const node = await repo.updateNode(noteId, { content: text })
+          // baseContent：這次是根據哪個內容改的。編輯期間這篇被同步改過的話，repo 不會蓋掉它
+          const node = await repo.updateNode(noteId, { content: text, baseContent: lastSaved.current })
           lastSaved.current = text
           onSavedRef.current(node)
           if (mounted.current) setSaveError(null)
         } catch (err) {
+          if (err instanceof RepoError && err.kind === 'conflict') {
+            // 這次的內容已另存為衝突副本：編輯器換成同步來的版本，迴圈接著檢查有沒有新打的字
+            const node = await repo.getNode(noteId).catch(() => null)
+            latest.current = lastSaved.current = node?.content ?? ''
+            if (mounted.current) {
+              setContent(latest.current)
+              setNotice(err.message)
+            }
+            continue
+          }
           if (mounted.current) {
             setSaveState('error')
             setSaveError(err instanceof RepoError ? err.message : '發生未預期的錯誤。')
@@ -107,30 +120,28 @@ export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
     }
   }, [save])
 
-  // 恢復連線（可以寫入）時：
-  //   - 有斷線前沒存成功的內容 → 補存
-  //   - 沒有 → 從雲端重新讀一次。離線時看的是副本，可能比雲端舊（別台裝置改過），
-  //     不重新讀的話，接著編輯會用舊內容蓋掉別台裝置的修改
-  const wasReadOnly = useRef(readOnly)
-  useEffect(() => {
-    const resumed = wasReadOnly.current && !readOnly
-    wasReadOnly.current = readOnly
-    if (!resumed) return
-    if (latest.current !== lastSaved.current) {
-      void save()
-      return
-    }
-    const before = latest.current
-    repo
-      .getNode(noteId)
-      .then((node) => {
-        // 讀回來之前已經開始打字的話，以打的字為準
-        if (!mounted.current || !node || latest.current !== before) return
-        latest.current = lastSaved.current = node.content ?? ''
-        setContent(latest.current)
-      })
-      .catch(() => undefined)
-  }, [readOnly, save, noteId])
+  // 同步拉到其他裝置對這篇的修改時，換成新的內容。
+  // 有還沒存的內容就先不換：之後儲存時 repo 會發現內容被改過，把這次的內容另存為衝突副本
+  useEffect(
+    () =>
+      mirror.onChange((ids) => {
+        if (!ids.includes(noteId) || latest.current !== lastSaved.current || saving.current) return
+        repo
+          .getNode(noteId)
+          .then((node) => {
+            if (!mounted.current || latest.current !== lastSaved.current) return
+            if (!node) {
+              setLoadError('這篇筆記已經在其他裝置刪除。')
+              return
+            }
+            if ((node.content ?? '') === lastSaved.current) return
+            latest.current = lastSaved.current = node.content ?? ''
+            setContent(latest.current)
+          })
+          .catch(() => undefined)
+      }),
+    [noteId],
+  )
 
   // 有未儲存的修改時，關閉分頁前提醒
   useEffect(() => {
@@ -194,20 +205,24 @@ export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    if (readOnly) return
     const images = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith('image/'))
     // 沒有圖片，或同時有文字（例如從網頁複製一段圖文）時，照一般貼上處理
     if (images.length === 0 || event.clipboardData.getData('text/plain')) return
     event.preventDefault()
+    // 圖片要上傳到雲端，離線時無法插入（spec：離線貼圖列在加分層）
+    if (!cloud) {
+      setImageStatus({ kind: 'error', text: '離線時無法插入圖片，恢復連線後再貼一次。' })
+      return
+    }
     void insertImages(images)
   }
 
   // 輸入時先讓編輯框更新，預覽稍後跟上，長筆記也不會卡
   const deferred = useDeferredValue(content ?? '')
-  const imageUrls = useImageUrls(deferred, !readOnly)
+  const imageUrls = useImageUrls(deferred, cloud)
   const previewHtml = useMemo(
-    () => renderMarkdown(deferred, (id) => imageUrls[id], { offline: readOnly }),
-    [deferred, imageUrls, readOnly],
+    () => renderMarkdown(deferred, (id) => imageUrls[id], { offline: !cloud }),
+    [deferred, imageUrls, cloud],
   )
 
   if (loadError) return <p className="message error">{loadError}</p>
@@ -238,8 +253,8 @@ export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
           type="button"
           className="secondary"
           onClick={() => fileInput.current?.click()}
-          disabled={readOnly}
-          title={readOnly ? '離線時無法插入圖片' : undefined}
+          disabled={!cloud}
+          title={cloud ? undefined : '離線時無法插入圖片'}
         >
           插入圖片
         </button>
@@ -255,24 +270,26 @@ export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
             void insertImages(files)
           }}
         />
-        {readOnly ? (
-          <span className="save-state offline" role="status">
-            {saveState === 'saved' ? '離線中，僅能閱讀' : '尚未儲存，恢復連線後自動儲存'}
-          </span>
-        ) : (
-          <span className={`save-state ${saveState}`} role="status">
-            {SAVE_LABEL[saveState]}
-          </span>
-        )}
-        {saveState === 'error' && !readOnly && (
+        <span className={`save-state ${saveState}`} role="status">
+          {SAVE_LABEL[saveState]}
+        </span>
+        {saveState === 'error' && (
           <button type="button" className="secondary" onClick={() => void save()}>
             重試
           </button>
         )}
       </div>
-      {saveError && saveState === 'error' && !readOnly && (
+      {saveError && saveState === 'error' && (
         <p className="message error" role="alert">
           {saveError}
+        </p>
+      )}
+      {notice && (
+        <p className="message warning" role="status">
+          {notice}{' '}
+          <button type="button" className="link-button" onClick={() => setNotice(null)}>
+            知道了
+          </button>
         </p>
       )}
       {imageStatus && (
@@ -287,17 +304,14 @@ export default function NoteEditor({ noteId, readOnly, onSaved }: Props) {
           className="editor-input"
           aria-label="Markdown 內容"
           value={content}
-          readOnly={readOnly}
           onChange={(e) => handleChange(e.target.value)}
-          onBlur={() => {
-            if (!readOnly) void save()
-          }}
+          onBlur={() => void save()}
           onPaste={handlePaste}
           onKeyDown={(e) => {
             // Ctrl+S / Cmd+S 立即儲存，不跳出瀏覽器的另存新檔
             if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
               e.preventDefault()
-              if (!readOnly) void save()
+              void save()
             }
           }}
           placeholder={'# 標題\n\n開始寫 Markdown…'}

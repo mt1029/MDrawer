@@ -1,198 +1,227 @@
-// repo 的本機實作：讀寫瀏覽器的 IndexedDB（離線 L1、L2 使用）。
-// L1 只能讀：連線時由 mirror.ts 把雲端資料存一份進來，斷線時 UI 改讀這裡；
-// 新增、修改、刪除一律回絕，等 L2 再加上待同步佇列。
+// repo 的本機實作（離線 L2）：讀寫都在這台裝置的 IndexedDB 完成，修改同時放進待同步佇列，
+// 連線時由 sync.ts 推送到雲端。名稱規則、同層不可同名、移動不能形成循環，先在本機檢查一次；
+// 推送時資料庫會再檢查（例如另一台裝置剛好建了同名的項目），由 sync.ts 處理。
+//
+// version、created_at、updated_at 不會送到資料庫（CLAUDE.md 規則）。本機新增的項目 version 為 0，
+// 時間只用來在這台裝置上顯示，推送後換成資料庫寫入的值。
 
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import { RepoError, sortNodes, type NodeMeta, type TreeNode } from './nodes.ts'
+import {
+  ROOT_KEY,
+  addConflictCopy,
+  nameTaken,
+  nextSeq,
+  recordCreate,
+  recordUpdate,
+  snapshot,
+  toLocal,
+  toMeta,
+  toTree,
+  type DbHandle,
+  type Field,
+  type WriteTx,
+} from './localDb.ts'
+import { RepoError, normalizeName, sortNodes, validateName, type NodeMeta } from './nodes.ts'
 import type { Repo } from './repo.ts'
 
-const DB_NAME = 'mdrawer'
-const DB_VERSION = 1
-// IndexedDB 的索引不收 null，根目錄的項目改用這個值
-const ROOT_KEY = 'root'
-
-/** 本機副本屬於哪個帳號，以及最後一次從雲端整批存下來的時間 */
-export interface LocalOwner {
-  userId: string
-  email: string
-  /** ISO 時間字串（這台裝置的時間，只用來顯示） */
-  syncedAt: string
+export interface LocalRepoOptions {
+  /** 每次寫入本機之後呼叫（排程推送、更新待同步數量） */
+  onWrite?: () => void
+  now?: () => Date
 }
 
-interface LocalNode extends TreeNode {
-  parent_key: string
+const DUPLICATE_MESSAGE = '這個資料夾裡已經有相同名稱的項目（不分大小寫）。'
+const NOT_FOUND_MESSAGE = '找不到這個項目，可能已經被刪除。請重新整理後再試。'
+
+function checkName(raw: string): string {
+  const name = normalizeName(raw)
+  const problem = validateName(name)
+  if (problem) throw new RepoError('invalid_name', problem)
+  return name
 }
 
-interface LocalSchema extends DBSchema {
-  nodes: { key: string; value: LocalNode; indexes: { by_parent: string } }
-  meta: { key: string; value: LocalOwner }
-}
-
-let dbPromise: Promise<IDBPDatabase<LocalSchema>> | null = null
-
-function db(): Promise<IDBPDatabase<LocalSchema>> {
-  if (!dbPromise) {
-    dbPromise = openDB<LocalSchema>(DB_NAME, DB_VERSION, {
-      upgrade(database) {
-        const nodes = database.createObjectStore('nodes', { keyPath: 'id' })
-        nodes.createIndex('by_parent', 'parent_key')
-        database.createObjectStore('meta')
-      },
-      // 其他分頁要升級資料庫（例如之後的 L2 版本）時先關閉，避免卡住對方
-      blocking(_current, _blocked, event) {
-        ;(event.target as IDBDatabase).close()
-        dbPromise = null
-      },
-      terminated() {
-        dbPromise = null
-      },
-    })
-    // 開不起來（例如瀏覽器封鎖網站資料）時，下次再試
-    dbPromise.catch(() => {
-      dbPromise = null
-    })
-  }
-  return dbPromise
-}
-
-function toLocal(node: TreeNode): LocalNode {
-  return { ...node, parent_key: node.parent_id ?? ROOT_KEY }
-}
-
-function toTree(row: LocalNode): TreeNode {
-  const { parent_key: _parentKey, ...node } = row
-  return node
-}
-
-function toMeta(row: LocalNode): NodeMeta {
-  const { parent_key: _parentKey, content: _content, ...meta } = row
-  return meta
-}
-
-const READ_ONLY_MESSAGE = '離線中，僅能閱讀。恢復連線後才能新增、修改、移動或刪除。'
-
-function refuse(message: string): Promise<never> {
+function offline(message: string): Promise<never> {
   return Promise.reject(new RepoError('offline', message))
 }
 
-/** 讀取本機副本；寫入一律回絕（L1） */
-export const localRepo: Repo = {
-  async listChildren(parentId) {
-    const rows = await (await db()).getAllFromIndex('nodes', 'by_parent', parentId ?? ROOT_KEY)
-    return sortNodes(rows.map(toMeta))
-  },
-  async getNode(id) {
-    const row = await (await db()).get('nodes', id)
-    return row ? toTree(row) : null
-  },
-  async listAll() {
-    return (await (await db()).getAll('nodes')).map(toTree)
-  },
-  createNode: () => refuse(READ_ONLY_MESSAGE),
-  updateNode: () => refuse(READ_ONLY_MESSAGE),
-  moveNode: () => refuse(READ_ONLY_MESSAGE),
-  deleteNode: () => refuse(READ_ONLY_MESSAGE),
-  uploadImage: () => refuse('離線時無法上傳圖片。'),
-  getImageUrls: () => refuse('離線時無法載入圖片。'),
-  downloadImage: () => refuse('離線時無法下載圖片。'),
-}
+export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): Repo {
+  const now = options.now ?? (() => new Date())
 
-/** 回傳 false 代表這次寫入已經作廢（期間登出或換了帳號），不要寫 */
-export type StillValid = () => boolean
-
-/** 維護本機副本用的操作，只給 mirror.ts 使用 */
-export const localStore = {
-  async getOwner(): Promise<LocalOwner | null> {
-    return (await (await db()).get('meta', 'owner')) ?? null
-  },
-
-  /**
-   * 用雲端的完整資料取代本機副本，並記下擁有者。
-   * keep 裡的 id 是下載期間這台裝置改過的項目：保留本機現有的版本，不被下載到的舊資料蓋掉；
-   * 其中已經在本機刪掉的，連同下載結果裡的子孫都不加回來。
-   */
-  async replaceAll(owner: LocalOwner, nodes: TreeNode[], keep: Set<string>, stillValid: StillValid): Promise<boolean> {
-    const database = await db()
-    if (!stillValid()) return false
-    // 同一個交易裡完成：中途失敗時本機副本維持原樣，不會只剩一半
-    const tx = database.transaction(['nodes', 'meta'], 'readwrite')
-    const store = tx.objectStore('nodes')
-    const keepIds = [...keep]
-    const kept = (await Promise.all(keepIds.map((id) => store.get(id)))).filter((row) => row !== undefined)
-
-    const skip = new Set(keepIds)
-    const removed = keepIds.filter((id) => !kept.some((row) => row.id === id))
-    if (removed.length > 0) {
-      const childrenOf = new Map<string, string[]>()
-      for (const node of nodes) {
-        if (!node.parent_id) continue
-        childrenOf.set(node.parent_id, [...(childrenOf.get(node.parent_id) ?? []), node.id])
+  /** 在同一個交易裡檢查並寫入；檢查失敗就放棄整個交易，不會留下寫一半的資料 */
+  async function write<T>(work: (tx: WriteTx) => Promise<T>): Promise<T> {
+    const tx = (await db()).transaction(['nodes', 'pending'], 'readwrite')
+    tx.done.catch(() => undefined) // 放棄交易時 done 會 reject，錯誤已由下面處理
+    try {
+      const result = await work(tx)
+      await tx.done
+      options.onWrite?.()
+      return result
+    } catch (err) {
+      try {
+        tx.abort()
+      } catch {
+        // 交易已經結束
       }
-      for (const frontier = [...removed]; frontier.length > 0; ) {
-        for (const child of childrenOf.get(frontier.pop()!) ?? []) {
-          if (!skip.has(child)) {
-            skip.add(child)
-            frontier.push(child)
+      throw err
+    }
+  }
+
+  /** 上層必須是本機存在的資料夾；回傳索引用的 key */
+  async function parentKeyOf(tx: WriteTx, parentId: string | null): Promise<string> {
+    if (!parentId) return ROOT_KEY
+    const parent = await tx.objectStore('nodes').get(parentId)
+    if (!parent) throw new RepoError('not_found', '上層資料夾不存在，可能已經被刪除。請重新整理後再試。')
+    if (parent.type !== 'folder') throw new RepoError('invalid_move', '只能放在資料夾裡。')
+    return parentId
+  }
+
+  return {
+    async listChildren(parentId) {
+      const rows = await (await db()).getAllFromIndex('nodes', 'by_parent', parentId ?? ROOT_KEY)
+      return sortNodes(rows.map(toMeta))
+    },
+
+    async getNode(id) {
+      const row = await (await db()).get('nodes', id)
+      return row ? toTree(row) : null
+    },
+
+    async listAll() {
+      return (await (await db()).getAll('nodes')).map(toTree)
+    },
+
+    async createNode(input) {
+      const name = checkName(input.name)
+      return write(async (tx) => {
+        const parentKey = await parentKeyOf(tx, input.parentId)
+        if (await nameTaken(tx, parentKey, name)) throw new RepoError('duplicate_name', DUPLICATE_MESSAGE)
+        const time = now().toISOString()
+        const node = toLocal({
+          id: crypto.randomUUID(),
+          parent_id: input.parentId,
+          type: input.type,
+          name,
+          content: input.type === 'note' ? (input.content ?? '') : null,
+          version: 0,
+          created_at: time,
+          updated_at: time,
+        })
+        await recordCreate(tx, node)
+        return toMeta(node)
+      })
+    },
+
+    async updateNode(id, patch) {
+      const name = patch.name !== undefined ? checkName(patch.name) : undefined
+      const result = await write(async (tx): Promise<{ node: NodeMeta } | { conflictCopy: string }> => {
+        const nodes = tx.objectStore('nodes')
+        const node = await nodes.get(id)
+        if (!node) throw new RepoError('not_found', NOT_FOUND_MESSAGE)
+
+        // 編輯器載入之後，這篇被同步改成別台裝置的內容：不要直接蓋掉，
+        // 這次的內容另存為衝突副本，原筆記保留同步來的版本（spec 第 6 節衝突處理）
+        if (patch.content !== undefined && patch.baseContent !== undefined && node.content !== patch.baseContent) {
+          const copy = await addConflictCopy(tx, node.parent_id, node.name, patch.content, now())
+          return { conflictCopy: copy.name }
+        }
+
+        const next = { ...node }
+        const fields: Field[] = []
+        if (name !== undefined && name !== node.name) {
+          if (await nameTaken(tx, node.parent_key, name, id)) throw new RepoError('duplicate_name', DUPLICATE_MESSAGE)
+          next.name = name
+          fields.push('name')
+        }
+        if (patch.content !== undefined && patch.content !== node.content) {
+          next.content = patch.content
+          fields.push('content')
+        }
+        if (fields.length === 0) return { node: toMeta(node) }
+        next.updated_at = now().toISOString()
+        await nodes.put(next)
+        await recordUpdate(tx, node, fields)
+        return { node: toMeta(next) }
+      })
+      if ('conflictCopy' in result) {
+        throw new RepoError(
+          'conflict',
+          `這篇筆記剛同步到其他裝置的修改。為了不蓋掉它，你這次的內容另存為「${result.conflictCopy}」。`,
+        )
+      }
+      return result.node
+    },
+
+    async moveNode(id, newParentId) {
+      return write(async (tx) => {
+        const nodes = tx.objectStore('nodes')
+        const node = await nodes.get(id)
+        if (!node) throw new RepoError('not_found', NOT_FOUND_MESSAGE)
+
+        // 從目標往上找到根目錄，途中不能遇到自己（不能移到自己或自己的子孫底下）
+        const visited = new Set<string>()
+        for (let current = newParentId, isTarget = true; current; isTarget = false) {
+          if (current === id) throw new RepoError('invalid_move', '不能移到自己或自己底下的資料夾。')
+          if (visited.has(current)) throw new RepoError('invalid_move', '資料夾結構出現循環，請重新整理後再試。')
+          visited.add(current)
+          const row = await nodes.get(current)
+          if (!row) throw new RepoError('not_found', '目標資料夾不存在，可能已經被刪除。')
+          if (isTarget && row.type !== 'folder') throw new RepoError('invalid_move', '只能移到資料夾裡。')
+          current = row.parent_id
+        }
+
+        if (node.parent_id === newParentId) return toMeta(node)
+        const parentKey = newParentId ?? ROOT_KEY
+        if (await nameTaken(tx, parentKey, node.name, id)) {
+          throw new RepoError('duplicate_name', '目標資料夾裡已經有相同名稱的項目（不分大小寫）。')
+        }
+        const next = { ...node, parent_id: newParentId, parent_key: parentKey, updated_at: now().toISOString() }
+        await nodes.put(next)
+        await recordUpdate(tx, node, ['parent_id'])
+        return toMeta(next)
+      })
+    },
+
+    async deleteNode(id) {
+      await write(async (tx) => {
+        const nodes = tx.objectStore('nodes')
+        const pending = tx.objectStore('pending')
+        if (!(await nodes.get(id))) throw new RepoError('not_found', NOT_FOUND_MESSAGE)
+
+        // 找出這個項目與所有子孫
+        const ids = [id]
+        const seen = new Set(ids)
+        for (let i = 0; i < ids.length; i++) {
+          for (const child of await nodes.index('by_parent').getAllKeys(ids[i])) {
+            if (!seen.has(child)) {
+              seen.add(child)
+              ids.push(child)
+            }
           }
         }
-      }
-    }
 
-    await store.clear()
-    await Promise.all([
-      ...nodes.filter((node) => !skip.has(node.id)).map((node) => store.put(toLocal(node))),
-      ...kept.map((row) => store.put(row)),
-      tx.objectStore('meta').put(owner, 'owner'),
-    ])
-    await tx.done
-    return true
-  },
-
-  /**
-   * 寫入一筆雲端剛回傳的資料。content 為 undefined 代表不知道內容（例如只改名），保留本機原有的；
-   * 本機沒有這篇筆記、又不知道內容時不寫，等下次整批下載。
-   */
-  async putNode(meta: NodeMeta, content: string | null | undefined, stillValid: StillValid): Promise<void> {
-    const database = await db()
-    if (!stillValid()) return
-    const tx = database.transaction('nodes', 'readwrite')
-    const existing = await tx.store.get(meta.id)
-    if (existing || content !== undefined || meta.type === 'folder') {
-      const known = content !== undefined ? content : (existing?.content ?? null)
-      await tx.store.put(toLocal({ ...meta, content: meta.type === 'note' ? known : null }))
-    }
-    await tx.done
-  },
-
-  /** 刪除一筆與它所有的子孫，回傳刪掉的 id */
-  async removeTree(id: string, stillValid: StillValid): Promise<string[]> {
-    const database = await db()
-    if (!stillValid()) return []
-    const tx = database.transaction('nodes', 'readwrite')
-    const index = tx.store.index('by_parent')
-    const seen = new Set([id])
-    for (let frontier = [id]; frontier.length > 0; ) {
-      const next: string[] = []
-      for (const parent of frontier) {
-        for (const child of await index.getAllKeys(parent)) {
-          if (!seen.has(child)) {
-            seen.add(child)
-            next.push(child)
+        for (const nodeId of ids) {
+          const node = (await nodes.get(nodeId))!
+          const change = await pending.get(nodeId)
+          await nodes.delete(nodeId)
+          // 還沒推送過的新項目，雲端沒有，直接拿掉
+          if (change?.op === 'create') {
+            await pending.delete(nodeId)
+            continue
           }
+          await pending.put({
+            id: nodeId,
+            op: 'delete',
+            base: change?.base ?? snapshot(node),
+            fields: [],
+            rev: (change?.rev ?? 0) + 1,
+            seq: nextSeq(),
+          })
         }
-      }
-      frontier = next
-    }
-    await Promise.all([...seen].map((nodeId) => tx.store.delete(nodeId)))
-    await tx.done
-    return [...seen]
-  },
+      })
+    },
 
-  /** 清空本機副本（登出、換帳號時） */
-  async clear(): Promise<void> {
-    const tx = (await db()).transaction(['nodes', 'meta'], 'readwrite')
-    await Promise.all([tx.objectStore('nodes').clear(), tx.objectStore('meta').clear(), tx.done])
-  },
+    // 圖片只存在雲端：連線時由 mirror.ts 改用線上版，這裡只處理離線
+    uploadImage: () => offline('離線時無法上傳圖片。'),
+    getImageUrls: () => offline('離線時無法載入圖片。'),
+    downloadImage: () => offline('離線時無法下載圖片。'),
+  }
 }
-
-export type LocalStore = typeof localStore

@@ -1,15 +1,15 @@
 // UI 唯一的資料存取介面。UI 只能 import 這個檔案，不直接呼叫 Supabase。
-// 核心層 C 直接讀寫 Supabase；離線 L1 起，連線時讀寫 Supabase 並在 IndexedDB 存一份副本，
-// 斷線時改讀副本（mirror.ts）。L2 再換成先寫本機、背景同步，UI 不用改。
+// 核心層 C 直接讀寫 Supabase；離線 L2 起改成讀寫這台裝置的 IndexedDB（repo.local.ts），
+// 再由 sync.ts 在背景與雲端同步（mirror.ts 負責排程與帳號）。UI 的程式不用改。
 
+import { createDbHandle } from './localDb.ts'
 import { createMirror } from './mirror.ts'
 import type { NodeMeta, NodeType, TreeNode } from './nodes.ts'
-import { localRepo, localStore } from './repo.local.ts'
-import { onlineRepo } from './repo.online.ts'
+import { cloud, onlineRepo } from './repo.online.ts'
 
 export * from './nodes.ts'
+export type { LocalOwner } from './localDb.ts'
 export type { MirrorState } from './mirror.ts'
-export type { LocalOwner } from './repo.local.ts'
 
 export interface CreateNodeInput {
   parentId: string | null
@@ -21,6 +21,11 @@ export interface CreateNodeInput {
 export interface UpdateNodeInput {
   name?: string
   content?: string
+  /**
+   * 這次的內容是根據哪個版本改的（編輯器載入或上次儲存的內容）。
+   * 跟本機目前的內容不同，代表編輯期間被同步改過：不蓋掉，另存為衝突副本（只有本機版使用）
+   */
+  baseContent?: string
 }
 
 export interface Repo {
@@ -44,7 +49,7 @@ export interface Repo {
   downloadImage(id: string): Promise<Blob>
 }
 
-/** 這台裝置上的離線副本：登入後啟用、App 開啟與恢復連線時整批更新、登出時清除 */
-export const mirror = createMirror(onlineRepo, localRepo, localStore, () => navigator.onLine)
+/** 本機資料與同步：登入後啟用、在背景同步、登出時清除 */
+export const mirror = createMirror({ db: createDbHandle(), cloud, online: onlineRepo, isOnline: () => navigator.onLine })
 
 export const repo: Repo = mirror.repo

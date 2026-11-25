@@ -15,8 +15,9 @@ export function useSession(): Session | null | undefined {
   useEffect(() => {
     // 訂閱後會立刻收到 INITIAL_SESSION，之後登入、登出、token 更新都會再通知
     const { data } = supabase.auth.onAuthStateChange((event, next) => {
-      // 登出（包含在其他分頁登出、登入被伺服器判定失效）時，清掉這台裝置上的離線副本（spec 第 7 節）
-      if (event === 'SIGNED_OUT') void mirror.signOut().catch(() => undefined)
+      // 被登出（在其他分頁登出、登入被伺服器判定失效）：沒有未同步的修改就清除本機資料（spec 第 7 節），
+      // 有的話先保留，等同一個帳號重新登入後同步。自己按的登出在 App 裡已經先清除了
+      if (event === 'SIGNED_OUT') void mirror.handleSignedOut().catch(() => undefined)
       setSession(next)
     })
     // 離線期間登入權杖過期的話，恢復連線時馬上重試更新，不必等 Supabase 每 30 秒一次的檢查。

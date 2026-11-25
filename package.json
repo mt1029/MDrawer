@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "test:rls": "node --env-file=.env.local --env-file=.env.test.local scripts/rls-test.mjs",
+    "test:sync": "node --env-file=.env.local --env-file=.env.test.local scripts/sync-check.mjs",
     "icons": "pwa-assets-generator",
     "preview": "vite preview"
   },

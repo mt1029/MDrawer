@@ -1,7 +1,7 @@
-// repo 的線上實作：直接讀寫 Supabase（核心層 C 使用）。
+// repo 的線上實作：直接讀寫 Supabase（核心層 C 使用；L2 起資料改由本機讀寫，這裡只負責圖片與同步）。
 // 不送 user_id、version、created_at、updated_at：前兩者由 RLS 預設值與觸發器處理，後兩者只由資料庫寫入。
 
-import type { PostgrestError } from '@supabase/supabase-js'
+import { createCloud, toRepoError } from './cloud.ts'
 import {
   RepoError,
   normalizeName,
@@ -19,25 +19,6 @@ const FULL_COLUMNS = `${META_COLUMNS}, content`
 
 // 一次更新太多 id 會讓網址過長，分批送出
 const BATCH_SIZE = 100
-
-/** 把 Supabase 的錯誤轉成 RepoError（訊息可直接顯示） */
-function toRepoError(error: PostgrestError, status: number): RepoError {
-  if (status === 0 || !error.code) {
-    return new RepoError('network', '無法連線到伺服器，請確認網路後再試。')
-  }
-  switch (error.code) {
-    case '23505':
-      return new RepoError('duplicate_name', '這個資料夾裡已經有相同名稱的項目（不分大小寫）。')
-    case '23514':
-      return new RepoError('invalid_name', '名稱不符合規則：1～100 字，不能包含 /、\\ 或 ..。')
-    case '23503':
-      return new RepoError('not_found', '上層資料夾不存在，可能已經被刪除。請重新整理後再試。')
-    case 'PGRST116':
-      return new RepoError('not_found', '找不到這個項目，可能已經被刪除。請重新整理後再試。')
-    default:
-      return new RepoError('unknown', `發生錯誤：${error.message}`)
-  }
-}
 
 function checkName(raw: string): string {
   const name = normalizeName(raw)
@@ -313,3 +294,6 @@ export const onlineRepo: Repo = {
   getImageUrls,
   downloadImage,
 }
+
+/** 同步用的雲端操作（sync.ts 使用） */
+export const cloud = createCloud(supabase)

@@ -164,6 +164,11 @@ input:focus-visible {
   font-size: 0.95rem;
 }
 
+.message.warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
 .message.error {
   color: var(--error);
   background: var(--error-bg);
@@ -274,8 +279,14 @@ button.link {
   color: var(--muted);
 }
 
-.toolbar-hint.mirror-error {
+.toolbar-hint.sync-warning {
   color: var(--warning);
+}
+
+.first-sync {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 /* 看起來像連結的小按鈕（文字中的「重試」） */
@@ -358,9 +369,6 @@ button.link-button {
   color: var(--error);
 }
 
-.save-state.offline {
-  color: var(--warning);
-}
 
 .image-status {
   margin: 0;

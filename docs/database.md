@@ -121,3 +121,7 @@ SQL 在 [supabase/migrations/20261123010000_create_images_bucket.sql](../supabas
 | 「沒有權限上傳圖片」 | 政策沒建立成功，或登入已過期，重新登入後再試 |
 | 執行 SQL 出現 `duplicate key value violates unique constraint "buckets_pkey"` | bucket 已經存在，可能在 Dashboard 手動建過。到 Storage 刪掉 `images` bucket 後重跑，或只執行 `create policy` 那段 |
 | Vercel 上整個網站壞掉，Console 一堆 Content-Security-Policy 錯誤 | `VITE_SUPABASE_URL` 與實際專案不符，CSP 會擋掉 Supabase 的連線。確認環境變數後 Redeploy |
+
+## 同步檢查（離線 L2）
+
+`npm run test:sync` 用同樣的 A、B 測試帳號，在真正的 Supabase 上執行 App 的同步請求（`src/lib/cloud.ts`）。它不改資料表、政策或觸發器，只新增一組測試資料，結束時刪除。檢查項目與說明見 [offline.md](offline.md) 的驗證一節。
