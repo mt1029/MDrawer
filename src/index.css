@@ -353,26 +353,26 @@ button.link {
   letter-spacing: -0.01em;
 }
 
-.account {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-.account button {
+/* 帳號頭像：email 的第一個字，點開是帳號選單 */
+.avatar {
   flex: none;
-  padding: 0.4rem 0.8rem;
-  white-space: nowrap;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--button-bg);
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1;
 }
 
-.account .email {
-  margin-right: 0.5rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.avatar[aria-expanded='true'] {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
 }
 
 .offline-banner {
@@ -578,6 +578,12 @@ button.link {
   color: var(--muted);
 }
 
+/* 左邊的圖示整欄往左移（量測值在 iconOptics.ts），讓圖示看起來的左緣對齊標題文字。
+   只移第一個圖示：右邊打勾的圖示要靠 margin-left: auto 推到最右邊 */
+.menu-item > svg:first-child {
+  margin-left: var(--menu-icon-shift, 0);
+}
+
 /* 不用 .danger：那是紅底白字的按鈕樣式 */
 .menu-item.menu-danger,
 .menu-item.menu-danger svg {
@@ -619,9 +625,31 @@ button.link {
   }
 }
 
+/* 選單最上面的說明（帳號 email），不能選 */
+.menu-header {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.4rem 0.6rem 0.6rem;
+  max-width: 18rem;
+}
+
+.menu-header-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* email 不換行（在 - 或 @ 斷開很難讀），太長的用「…」截斷，完整的在頭像的 title */
+.menu-header-email {
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 分隔線的左右跟項目的內容（標題文字、圖示線條）對齊 */
 .menu-separator {
   height: 0.5px;
-  margin: 4px 0.4rem;
+  margin: 4px 0.6rem;
   background: var(--hairline);
 }
 

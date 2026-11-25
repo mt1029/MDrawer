@@ -30,3 +30,6 @@ dist-ssr
 
 # 其它
 temporary.md
+
+# scripts/icon-optics.mjs 產生的量測頁
+scripts/icon-optics.html

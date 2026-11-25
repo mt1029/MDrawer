@@ -3,13 +3,28 @@
 
 import { IconChevronRight, IconFolder, IconFolderOpen, IconMarkdown, type Icon as TablerIcon } from '@tabler/icons-react'
 import type { ButtonHTMLAttributes, Ref } from 'react'
+import { ICON_OPTICAL_SHIFT } from './iconOptics.ts'
 
 /** 細線條，配合主題的 0.5px 細線與細字重 */
 const STROKE = 1.5
 
-/** 以統一的粗細畫出 Tabler 圖示 */
+/**
+ * 以統一的粗細畫出 Tabler 圖示，並依「視覺重心」微調水平位置（iconOptics.ts，由 scripts/icon-optics.mjs 量測）。
+ * 用 CSS 的 translate 屬性移動，不影響 transform（展開箭頭的旋轉）
+ */
 export function Icon({ of: Component, size = 18, className }: { of: TablerIcon; size?: number; className?: string }) {
-  return <Component size={size} stroke={STROKE} className={className} aria-hidden="true" focusable="false" />
+  // Tabler 的 displayName 是不含「Icon」的名稱（例如 FileZip），表裡用的是 import 的名稱（IconFileZip）
+  const shift = (ICON_OPTICAL_SHIFT[`Icon${Component.displayName ?? ''}`] ?? 0) * (size / 24)
+  return (
+    <Component
+      size={size}
+      stroke={STROKE}
+      className={className}
+      style={shift ? { translate: `${shift.toFixed(2)}px 0` } : undefined}
+      aria-hidden="true"
+      focusable="false"
+    />
+  )
 }
 
 export function FolderIcon({ open = false }: { open?: boolean }) {

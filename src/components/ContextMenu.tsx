@@ -1,7 +1,11 @@
 import { IconCheck } from '@tabler/icons-react'
-import { useEffect, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { MENU_ICON_SHIFT } from './iconOptics.ts'
 import { Icon } from './icons.tsx'
+
+// 選單的圖示（18px）整欄往左移，讓圖示看起來的左緣對齊標題文字的左邊
+const MENU_ICON_OFFSET = `${((MENU_ICON_SHIFT * 18) / 24).toFixed(2)}px`
 
 export interface MenuEntry {
   label: string
@@ -25,6 +29,12 @@ export interface MenuRequest {
   /** 選單的名稱，給螢幕閱讀器 */
   label: string
   items: MenuItems
+  /** 'end'：選單的右邊對齊 x（從右上角的按鈕往下開） */
+  align?: 'start' | 'end'
+  /** 選單最上面的說明（例如帳號的 email），不能選 */
+  header?: ReactNode
+  /** 開選單的按鈕：在它上面按下時不算「點選單外面」，讓按鈕自己切換開關 */
+  anchor?: HTMLElement | null
 }
 
 // 選單離畫面邊緣至少留多少空間（像素）
@@ -48,13 +58,16 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
     const menu = ref.current
     if (!menu) return
     const { width, height } = menu.getBoundingClientRect()
-    const left = Math.max(MARGIN, Math.min(request.x, window.innerWidth - width - MARGIN))
+    const x = request.align === 'end' ? request.x - width : request.x
+    const left = Math.max(MARGIN, Math.min(x, window.innerWidth - width - MARGIN))
     const top =
       request.y + height + MARGIN > window.innerHeight ? Math.max(MARGIN, request.y - height) : request.y
     menu.style.left = `${left}px`
     menu.style.top = `${top}px`
-    if (!previous.current && document.activeElement instanceof HTMLElement && !menu.contains(document.activeElement)) {
-      previous.current = document.activeElement
+    // 從按鈕開的選單，關閉後焦點回到按鈕（Safari 點按鈕不會讓按鈕取得焦點，不能只靠目前的焦點）
+    if (!previous.current) {
+      const active = document.activeElement
+      previous.current = request.anchor ?? (active instanceof HTMLElement && !menu.contains(active) ? active : null)
     }
     // 有打勾的項目時，焦點放在打勾的那一項；否則放在第一項
     const items = menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)')
@@ -62,11 +75,13 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
   }, [request])
 
   // 點選單外面、捲動、改變視窗大小、切到別的視窗時關閉；關閉時焦點回到原本的元素
+  const anchor = request.anchor
   useEffect(() => {
     const menu = ref.current
     const close = () => onCloseRef.current()
     const outside = (event: Event) => {
-      if (!menu?.contains(event.target as Node)) close()
+      const target = event.target as Node
+      if (!menu?.contains(target) && !anchor?.contains(target)) close()
     }
     document.addEventListener('pointerdown', outside, true)
     document.addEventListener('scroll', outside, true)
@@ -82,7 +97,7 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
       const active = document.activeElement
       if (back?.isConnected && (!active || active === document.body || menu?.contains(active))) back.focus()
     }
-  }, [])
+  }, [anchor])
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const items = Array.from(ref.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled)') ?? [])
@@ -117,10 +132,18 @@ export default function ContextMenu({ request, onClose }: { request: MenuRequest
       className="context-menu"
       role="menu"
       aria-label={request.label}
-      style={{ left: request.x, top: request.y }}
+      // 先放在畫面最左邊量寬度（放在右邊緣附近會被擠窄），畫出來之前再移到正確的位置
+      style={{ left: 0, top: request.y, '--menu-icon-shift': MENU_ICON_OFFSET } as CSSProperties}
       onKeyDown={handleKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
+      {request.header && (
+        <>
+          <div className="menu-header">{request.header}</div>
+          {/* 跟項目之間的分隔線用獨立的元素，不放在第一個項目上，hover 的底色才不會蓋到它 */}
+          <div className="menu-separator" aria-hidden="true" />
+        </>
+      )}
       {request.items.map((item, index) =>
         item === 'separator' ? (
           <div key={`separator-${index}`} role="separator" className="menu-separator" />

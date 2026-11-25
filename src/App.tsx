@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
+import AccountMenu from './components/AccountMenu.tsx'
 import AuthForm from './components/AuthForm.tsx'
 import ConfirmDialog from './components/ConfirmDialog.tsx'
 import ExportDialog from './components/ExportDialog.tsx'
@@ -143,21 +144,13 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <span className="brand">MDrawer</span>
-        <span className="account">
-          <span className="email">{user.email}</span>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setExporting(true)}
-            disabled={!cloud || !hasLocalCopy}
-            title={cloud ? '把所有筆記匯出成 ZIP' : '離線時無法匯出（圖片要從雲端下載）'}
-          >
-            匯出
-          </button>
-          <button type="button" onClick={() => void handleSignOut()} disabled={signingOut}>
-            {signingOut ? '登出中…' : '登出'}
-          </button>
-        </span>
+        <AccountMenu
+          email={user.email}
+          canExport={cloud && hasLocalCopy}
+          onExport={() => setExporting(true)}
+          onSignOut={() => void handleSignOut()}
+          signingOut={signingOut}
+        />
       </header>
       {!cloud && <LocalOnlyBanner online={online} />}
       {hasLocalCopy ? (

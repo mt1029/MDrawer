@@ -11,6 +11,7 @@
     "test:rls": "node --env-file=.env.local --env-file=.env.test.local scripts/rls-test.mjs",
     "test:sync": "node --env-file=.env.local --env-file=.env.test.local scripts/sync-check.mjs",
     "icons": "pwa-assets-generator",
+    "icons:optics": "node scripts/icon-optics.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
