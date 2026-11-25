@@ -72,3 +72,8 @@ export function renderMarkdown(source: string, resolveImage?: ImageResolver): st
 export function extractImageIds(source: string): string[] {
   return [...new Set(Array.from(source.matchAll(IMAGE_REF), (match) => match[1]))]
 }
+
+/** 把筆記裡每個 img:<id> 換成 toPath(id) 的結果（匯出 ZIP 時改成相對路徑） */
+export function rewriteImageRefs(source: string, toPath: (id: string) => string): string {
+  return source.replace(IMAGE_REF, (_match, id: string) => toPath(id))
+}

@@ -195,7 +195,7 @@ create policy own_images on storage.objects for all
   );
 ```
 
-- 筆記內容裡圖片寫成 `![](img:<uuid>)`。預覽時把 `img:<uuid>` 換成 Storage 的短效簽名網址（有效 1 小時），匯出 ZIP 時依檔案格式換成相對路徑 `images/<uuid>.webp` 或 `images/<uuid>.jpg`。bucket 不必公開，匯出時的連結改寫也只是一次字串取代。
+- 筆記內容裡圖片寫成 `![](img:<uuid>)`。預覽時把 `img:<uuid>` 換成 Storage 的短效簽名網址（有效 1 小時），匯出 ZIP 時圖片集中放在 ZIP 根目錄的 `images/<uuid>.webp`（JPEG 為 `.jpg`），筆記裡的連結換成從筆記所在位置出發的相對路徑：最上層的筆記寫成 `images/<uuid>.webp`，第二層資料夾裡的筆記寫成 `../../images/<uuid>.webp`。bucket 不必公開，匯出時的連結改寫也只是一次字串取代。
 - 替換必須在 DOMPurify 過濾之前完成。DOMPurify 預設會移除 `img:` 這種非標準網址的 `src`。做法是先用 `createSignedUrls` 一次取得整篇筆記的簽名網址並快取，在 markdown-it 產生 `<img>` 時替換，再交給 DOMPurify。
 - 剛貼上的圖片同樣是上傳後再取簽名網址顯示，不用本機的 `blob:` 網址，因為 DOMPurify 預設也會移除 `blob:`。
 - CSP 由 `vite.config.ts` 在打包時寫入 `index.html`：`script-src 'self'`；`img-src` 與 `connect-src` 只允許自己的網域與 Supabase 專案網域，不開放 `blob:` 與外部圖片。開發模式不加 CSP，因為 Vite 的熱更新需要行內 script。
@@ -243,7 +243,7 @@ create policy own_images on storage.objects for all
 | 筆記含惡意 HTML 或 script（XSS） | `markdown-it` 設 `html: false`，輸出再經 DOMPurify 過濾，不使用未過濾的 `innerHTML`，正式版另設 CSP（只允許自己網域的 script） | 筆記貼入 `<script>`、帶 `onerror` 的圖片、`javascript:` 連結，確認預覽不執行 |
 | 讀取或改動他人資料 | `nodes` 與 Storage 都啟用 RLS，限制為 `auth.uid()` | 用 B 帳號帶 A 的 id 查詢、更新、讀圖，應查無資料 |
 | 惡意或過大上傳 | 前端先壓縮並轉 WebP（Safari 為 JPEG），bucket 限制大小（2 MB）與類型，存取政策限制路徑為「自己的 id/UUID」 | 上傳改副檔名的可執行檔、超大圖片，應被拒絕 |
-| 名稱含路徑字元 | 資料庫 `check` 加前端驗證，匯出 ZIP 時再淨化一次 | 建立名稱含 `../` 的項目應失敗 |
+| 名稱含路徑字元 | 資料庫 `check` 加前端驗證，匯出 ZIP 時再淨化一次：Windows、macOS 不允許的字元換成 `_`，Windows 保留名稱前加 `_`，淨化後撞名加「 (2)」 | 建立名稱含 `../` 的項目應失敗 |
 | 金鑰外洩 | 前端只用 publishable key（舊版稱 anon key），secret key 與 service_role key 不進前端與 Git，`.env*` 列入 `.gitignore` | 檢查 Git 紀錄與打包檔。打包檔裡唯一的 `sb_secret_` 是 supabase-js 判斷金鑰格式的程式碼，不是金鑰 |
 | 本機資料未加密 | 登出時清除 IndexedDB，有未同步修改要先警告 | 登出後檢查本機資料庫為空 |
 
@@ -254,6 +254,8 @@ create policy own_images on storage.objects for all
 - GIF 轉成 WebP 後會變成靜態圖。
 - Safari（含所有 iPhone 瀏覽器）貼上的圖會存成 JPEG，透明背景會變成白色。
 - 筆記不能顯示外部網站的圖片（CSP 限制），只能顯示自己上傳的圖。
+- ZIP 匯出讀的是雲端資料，還沒儲存完成的修改不會出現在 ZIP 裡；Storage 裡找不到的圖片不會放進 ZIP，筆記裡仍保留它的連結。
+- macOS 終端機的 `unzip` 指令不認得 ZIP 的 UTF-8 檔名旗標，中文檔名會出錯；用 Finder 雙擊或 `ditto -x -k` 解壓則正常（ZIP 本身符合標準）。
 - 刪除筆記不會即時清掉圖片檔，Storage 會留下孤兒檔。
 - 離線時無法貼圖，也無法顯示圖片（簽名網址需要連線取得）。
 - 不做即時同步，只在 App 啟動、恢復連線與固定間隔時同步。

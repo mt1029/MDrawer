@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AuthForm from './components/AuthForm.tsx'
+import ExportDialog from './components/ExportDialog.tsx'
 import Workspace from './components/Workspace.tsx'
 import { supabase } from './lib/supabase.ts'
 import { useOnline } from './lib/useOnline.ts'
@@ -18,6 +19,7 @@ export default function App() {
   const session = useSession()
   const online = useOnline()
   const [signingOut, setSigningOut] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   if (session === undefined) {
     return <p className="loading">載入中…</p>
@@ -45,6 +47,15 @@ export default function App() {
         <span className="brand">MDrawer</span>
         <span className="account">
           <span className="email">{session.user.email}</span>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setExporting(true)}
+            disabled={!online}
+            title={online ? '把所有筆記匯出成 ZIP' : '離線時無法匯出'}
+          >
+            匯出
+          </button>
           <button type="button" onClick={handleSignOut} disabled={signingOut}>
             {signingOut ? '登出中…' : '登出'}
           </button>
@@ -52,6 +63,7 @@ export default function App() {
       </header>
       {!online && <OfflineBanner />}
       <Workspace />
+      {exporting && <ExportDialog onClose={() => setExporting(false)} />}
     </div>
   )
 }

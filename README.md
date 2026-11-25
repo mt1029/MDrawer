@@ -23,3 +23,4 @@ npm run dev                  # http://localhost:5173
 - Supabase 設定、部署到 Vercel 與驗證：[docs/deploy.md](docs/deploy.md)
 - 資料表、RLS 與隔離測試：[docs/database.md](docs/database.md)
 - PWA 安裝、離線外殼與換圖示：[docs/deploy.md](docs/deploy.md) 最後一節
+- ZIP 匯出的內容與驗證：[docs/export.md](docs/export.md)

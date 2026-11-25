@@ -23,6 +23,8 @@ export interface Repo {
   listChildren(parentId: string | null): Promise<NodeMeta[]>
   /** 取得單一項目（含筆記內容），找不到或已刪除時回傳 null */
   getNode(id: string): Promise<TreeNode | null>
+  /** 所有未刪除的資料夾與筆記（含內容），匯出 ZIP 用 */
+  listAll(): Promise<TreeNode[]>
   createNode(input: CreateNodeInput): Promise<NodeMeta>
   updateNode(id: string, patch: UpdateNodeInput): Promise<NodeMeta>
   /** 移到另一個資料夾，newParentId 為 null 代表移到根目錄。不能移到自己或自己的子孫底下 */
@@ -33,6 +35,8 @@ export interface Repo {
   uploadImage(image: Blob): Promise<string>
   /** 取得圖片的短效網址。找不到或沒有權限的圖片回傳 null */
   getImageUrls(ids: string[]): Promise<Record<string, string | null>>
+  /** 下載圖片檔，匯出 ZIP 用。Blob 的 type 為 image/webp 或 image/jpeg */
+  downloadImage(id: string): Promise<Blob>
 }
 
 export const repo: Repo = onlineRepo

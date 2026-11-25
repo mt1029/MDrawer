@@ -73,6 +73,24 @@ async function getNode(id: string): Promise<TreeNode | null> {
   return data as TreeNode | null
 }
 
+// Supabase 一次最多回傳 1000 筆，超過要分頁讀
+const PAGE_SIZE = 1000
+
+async function listAll(): Promise<TreeNode[]> {
+  const all: TreeNode[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error, status } = await supabase
+      .from('nodes')
+      .select(FULL_COLUMNS)
+      .is('deleted_at', null)
+      .order('id')
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw toRepoError(error, status)
+    all.push(...(data as TreeNode[]))
+    if (data.length < PAGE_SIZE) return all
+  }
+}
+
 async function createNode(input: CreateNodeInput): Promise<NodeMeta> {
   const name = checkName(input.name)
   const { data, error, status } = await supabase
@@ -281,13 +299,25 @@ async function getImageUrls(ids: string[]): Promise<Record<string, string | null
   return result
 }
 
+async function downloadImage(id: string): Promise<Blob> {
+  const userId = await currentUserId()
+  const { data, error } = await supabase.storage.from(IMAGE_BUCKET).download(`${userId}/${id}`)
+  if (error) {
+    const status = (error as { status?: number }).status
+    throw new RepoError(status ? 'not_found' : 'network', status ? '找不到這張圖片。' : '無法連線到伺服器，圖片沒有下載。')
+  }
+  return data
+}
+
 export const onlineRepo: Repo = {
   listChildren,
   getNode,
+  listAll,
   createNode,
   updateNode,
   moveNode,
   deleteNode,
   uploadImage,
   getImageUrls,
+  downloadImage,
 }
