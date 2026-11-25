@@ -41,6 +41,11 @@ export interface Repo {
   moveNode(id: string, newParentId: string | null): Promise<NodeMeta>
   /** 標記刪除這個項目，資料夾會連同所有子孫一起標記 */
   deleteNode(id: string): Promise<void>
+  /**
+   * 複製到另一個資料夾，資料夾會連同裡面所有的項目一起複製（都是新的 id）。
+   * 目標資料夾裡已經有同名的項目時，名稱加上「 (2)」。不能複製到自己或自己的子孫底下。
+   */
+  copyNode(id: string, targetParentId: string | null): Promise<NodeMeta>
   /** 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片 id。筆記裡寫成 ![](img:<id>) */
   uploadImage(image: Blob): Promise<string>
   /** 取得圖片的短效網址。找不到或沒有權限的圖片回傳 null */

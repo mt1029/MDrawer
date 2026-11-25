@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.2",
+    "@tabler/icons-react": "^3.53.0",
     "dompurify": "^3.5.0",
     "idb": "^8.0.4",
     "jszip": "^3.10.2",

@@ -45,6 +45,14 @@ export default function AuthForm() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    // 直接從表單讀值，不用 React 的 state：瀏覽器自動填入的帳密，在使用者點擊頁面之前
+    // 不會觸發 onChange，state 還是空的。點按鈕會先讓瀏覽器交出填入的值，按 Enter 則不一定，
+    // 結果變成只有按按鈕才登入得了
+    const form = new FormData(event.currentTarget)
+    const email = String(form.get('email') ?? '').trim()
+    const password = String(form.get('password') ?? '')
+    setEmail(email)
+    setPassword(password)
     setBusy(true)
     setError(null)
     setNotice(null)

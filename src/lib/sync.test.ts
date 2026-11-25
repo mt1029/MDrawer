@@ -160,6 +160,54 @@ describe('本機寫入：離線也能新增、修改、移動、刪除', () => {
   })
 })
 
+describe('複製（剪下、複製、貼上）', () => {
+  it('複製筆記到同一個資料夾：名稱加上「 (2)」，內容相同，是新的項目', async () => {
+    const a = device()
+    const note = await a.repo.createNode({ parentId: null, type: 'note', name: '筆記', content: '內容 ![](img:aaaaaaaa-0000-4000-8000-000000000001)' })
+    const copy = await a.repo.copyNode(note.id, null)
+    expect(copy.id).not.toBe(note.id)
+    expect(copy).toMatchObject({ name: '筆記 (2)', version: 0, parent_id: null })
+    expect(await a.content(copy.id)).toBe(await a.content(note.id)) // 圖片引用同一張，不必重新上傳
+    const again = await a.repo.copyNode(note.id, null)
+    expect(again.name).toBe('筆記 (3)')
+  })
+
+  it('複製資料夾連同所有子孫；同步後雲端有完整的副本（父先子後）', async () => {
+    const a = device()
+    const b = device()
+    const course = await a.repo.createNode({ parentId: null, type: 'folder', name: '課程' })
+    const week = await a.repo.createNode({ parentId: course.id, type: 'folder', name: '第一週' })
+    await a.repo.createNode({ parentId: week.id, type: 'note', name: '筆記', content: '第一週的內容' })
+    const archive = await a.repo.createNode({ parentId: null, type: 'folder', name: '封存' })
+    await a.sync()
+
+    const copy = await a.repo.copyNode(course.id, archive.id)
+    expect(copy).toMatchObject({ name: '課程', parent_id: archive.id })
+    const [copiedWeek] = await a.repo.listChildren(copy.id)
+    expect(copiedWeek.name).toBe('第一週')
+    expect(copiedWeek.id).not.toBe(week.id)
+    const [copiedNote] = await a.repo.listChildren(copiedWeek.id)
+    expect(await a.content(copiedNote.id)).toBe('第一週的內容')
+    expect(await a.repo.listChildren(course.id)).toHaveLength(1) // 原本的沒有變
+
+    const report = await a.sync()
+    expect(report.failed).toEqual([])
+    expect(fake.rows.get(copiedNote.id)).toMatchObject({ parent_id: copiedWeek.id, content: '第一週的內容' })
+    await b.sync()
+    expect(await b.names(archive.id)).toEqual(['課程'])
+  })
+
+  it('不能把資料夾複製到自己或自己底下', async () => {
+    const a = device()
+    const outer = await a.repo.createNode({ parentId: null, type: 'folder', name: '外層' })
+    const inner = await a.repo.createNode({ parentId: outer.id, type: 'folder', name: '內層' })
+    await expectRepoError(a.repo.copyNode(outer.id, inner.id), 'invalid_move')
+    await expectRepoError(a.repo.copyNode(outer.id, outer.id), 'invalid_move')
+    await expectRepoError(a.repo.copyNode(outer.id, crypto.randomUUID()), 'not_found')
+    expect((await a.repo.listAll()).map((n) => n.name).sort()).toEqual(['內層', '外層'])
+  })
+})
+
 describe('推送', () => {
   it('離線建立的多層資料夾：父先子後推送（先建的資料夾移進後建的也可以）', async () => {
     const a = device()

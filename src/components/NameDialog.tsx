@@ -4,6 +4,8 @@ import Modal from './Modal.tsx'
 
 interface Props {
   title: string
+  /** 名稱欄下方的說明，例如會建立在哪個資料夾 */
+  hint?: string
   initialName?: string
   submitLabel: string
   /** 失敗時丟出 RepoError，訊息會顯示在對話框裡 */
@@ -12,7 +14,7 @@ interface Props {
 }
 
 /** 輸入名稱的對話框，用於新增與重新命名 */
-export default function NameDialog({ title, initialName = '', submitLabel, onSubmit, onClose }: Props) {
+export default function NameDialog({ title, hint, initialName = '', submitLabel, onSubmit, onClose }: Props) {
   const [name, setName] = useState(initialName)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -50,6 +52,7 @@ export default function NameDialog({ title, initialName = '', submitLabel, onSub
             aria-invalid={error ? true : undefined}
           />
         </label>
+        {hint && <p className="modal-hint">{hint}</p>}
         {error && (
           <p className="message error" role="alert">
             {error}

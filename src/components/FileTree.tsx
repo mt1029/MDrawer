@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, DragEvent, HTMLAttributes, KeyboardEvent } from 'react'
 import type { NodeMeta } from '../lib/repo.ts'
 import { ChevronIcon, FolderIcon, NoteIcon } from './icons.tsx'
 
@@ -7,28 +7,35 @@ interface Props {
   childrenOf: (parentId: string | null) => NodeMeta[] | undefined
   expanded: ReadonlySet<string>
   selectedId: string | null
-  onSelect: (node: NodeMeta | null) => void
+  /** 正在開右鍵選單的項目（外框標示，但不改變選取） */
+  menuTargetId?: string | null
+  onSelect: (node: NodeMeta) => void
   onToggle: (node: NodeMeta) => void
+  /** 右鍵、長按、選單鍵要綁在項目上的事件（開右鍵選單） */
+  menuTrigger?: (node: NodeMeta) => HTMLAttributes<HTMLElement>
+  /** 項目上的其他快捷鍵（例如 F2 改名、Delete 刪除） */
+  onItemKeyDown?: (node: NodeMeta, event: KeyboardEvent<HTMLElement>) => void
+  /** 剪下、還沒貼上的項目（變淡） */
+  cutId?: string | null
+  /** 拖曳：沒有傳就不能拖（觸控裝置用剪下、貼上） */
+  drag?: TreeDrag
+  /** 拖曳時要放進去的資料夾（標示出來）；null 為最上層 */
+  dropTargetId?: string | null
 }
 
-/** 資料夾樹。資料夾展開時才載入子項目 */
+export interface TreeDrag {
+  onDragStart: (node: NodeMeta, event: DragEvent<HTMLElement>) => void
+  /** node 為游標下的項目 */
+  onDragOver: (node: NodeMeta, event: DragEvent<HTMLElement>) => void
+  onDrop: (node: NodeMeta, event: DragEvent<HTMLElement>) => void
+  onDragEnd: () => void
+}
+
+/** 資料夾樹。資料夾展開時才載入子項目。最上層沒有獨立的一列：點樹以外的空白處就是選最上層 */
 export default function FileTree(props: Props) {
-  const rootSelected = props.selectedId === null
   return (
     <div className="file-tree">
-      <div className={rootSelected ? 'tree-row selected' : 'tree-row'} style={depthStyle(0)}>
-        <span className="tree-toggle-spacer" />
-        <button
-          type="button"
-          className="tree-item"
-          aria-current={rootSelected ? 'true' : undefined}
-          onClick={() => props.onSelect(null)}
-        >
-          <FolderIcon />
-          <span className="tree-name">最上層</span>
-        </button>
-      </div>
-      <TreeLevel {...props} parentId={null} depth={1} />
+      <TreeLevel {...props} parentId={null} depth={0} />
     </div>
   )
 }
@@ -61,13 +68,31 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
         const isFolder = node.type === 'folder'
         const isOpen = isFolder && props.expanded.has(node.id)
         const isSelected = props.selectedId === node.id
+        const trigger = props.menuTrigger?.(node)
         return (
           <li key={node.id}>
-            <div className={isSelected ? 'tree-row selected' : 'tree-row'} style={depthStyle(depth)}>
+            <div
+              className={[
+                'tree-row',
+                isSelected && 'selected',
+                props.menuTargetId === node.id && 'menu-target',
+                props.cutId === node.id && 'cut',
+                isFolder && props.dropTargetId === node.id && 'drop-target',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              style={depthStyle(depth)}
+              draggable={props.drag ? true : undefined}
+              onDragStart={props.drag && ((event) => props.drag!.onDragStart(node, event))}
+              onDragOver={props.drag && ((event) => props.drag!.onDragOver(node, event))}
+              onDrop={props.drag && ((event) => props.drag!.onDrop(node, event))}
+              onDragEnd={props.drag?.onDragEnd}
+            >
               {isFolder ? (
                 <button
                   type="button"
                   className="tree-toggle"
+                  tabIndex={-1}
                   aria-label={`${isOpen ? '收合' : '展開'}「${node.name}」`}
                   aria-expanded={isOpen}
                   onClick={() => props.onToggle(node)}
@@ -81,9 +106,15 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
                 type="button"
                 className="tree-item"
                 aria-current={isSelected ? 'true' : undefined}
+                aria-expanded={isFolder ? isOpen : undefined}
+                {...trigger}
                 onClick={() => props.onSelect(node)}
+                onKeyDown={(event) => {
+                  trigger?.onKeyDown?.(event)
+                  if (!event.defaultPrevented) props.onItemKeyDown?.(node, event)
+                }}
               >
-                {isFolder ? <FolderIcon /> : <NoteIcon />}
+                {isFolder ? <FolderIcon open={isOpen} /> : <NoteIcon />}
                 <span className="tree-name">{node.name}</span>
               </button>
             </div>

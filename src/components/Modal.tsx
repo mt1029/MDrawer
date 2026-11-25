@@ -15,7 +15,13 @@ export default function Modal({ title, busy = false, onClose, children }: Props)
 
   useEffect(() => {
     const dialog = ref.current
+    // 對話框是直接從畫面移除（不是呼叫 close()），瀏覽器不會把焦點還回去，要自己記下來
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     if (dialog && !dialog.open) dialog.showModal()
+    return () => {
+      const active = document.activeElement
+      if (previous?.isConnected && (!active || active === document.body)) previous.focus()
+    }
   }, [])
 
   return (

@@ -384,45 +384,224 @@ button.link {
   text-align: center;
 }
 
+/* 最左側圖示欄、側欄、內容，三欄 */
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  grid-template-columns: 3rem minmax(220px, 300px) minmax(0, 1fr);
   min-height: 0;
+}
+
+/* 再按一次「檔案總管」可以收起側欄，讓編輯區變寬 */
+.workspace.sidebar-hidden {
+  grid-template-columns: 3rem minmax(0, 1fr);
+}
+
+.workspace.sidebar-hidden .sidebar {
+  display: none;
+}
+
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--fill);
+  border-right: 0.5px solid var(--hairline);
+}
+
+.activity-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+}
+
+/* 目前開著的面板：圖示變深，左邊一條藍線 */
+.activity-button[aria-pressed='true'] {
+  color: var(--text);
+}
+
+.activity-button[aria-pressed='true']::before {
+  content: '';
+  position: absolute;
+  inset: 0.5rem auto 0.5rem 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.activity-button:focus-visible {
+  outline-offset: -4px;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
   min-height: 0;
-  padding: 0.75rem 0.5rem;
-  overflow-y: auto;
   background: var(--fill);
   border-right: 0.5px solid var(--hairline);
 }
 
-.toolbar {
+/* 側欄的標題列：面板名稱與圖示按鈕 */
+.panel-header {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0 0.25rem 0 0.75rem;
+}
+
+.panel-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.panel-actions {
+  display: flex;
+  transition: opacity 0.15s ease;
+}
+
+/* 有滑鼠的裝置：游標移到側欄、或用鍵盤移到按鈕時才顯示；觸控裝置一直顯示 */
+@media (hover: hover) {
+  .panel-actions {
+    opacity: 0;
+  }
+
+  .sidebar:hover .panel-actions,
+  .panel-actions:focus-within {
+    opacity: 1;
+  }
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.icon-button:focus-visible {
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  :is(.icon-button, .activity-button):not(:disabled):hover {
+    background: none;
+    color: var(--text);
+  }
+
+  .icon-button:not(:disabled):hover {
+    background: var(--fill-2);
+  }
+}
+
+/* 樹的區域：下面留空白，點空白處就是選最上層 */
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0.25rem 3rem;
+}
+
+.sidebar > .message {
+  margin: 0 0.5rem 0.5rem;
+}
+
+.panel-footer {
+  display: grid;
   gap: 0.25rem;
-  padding: 0 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 0.5px solid var(--hairline);
 }
 
-.toolbar button {
-  padding: 0.3rem 0.6rem;
-  font-size: 0.875rem;
+.panel-footer:empty {
+  display: none;
 }
 
-.toolbar-hint {
+.status-line {
   margin: 0;
-  padding: 0 0.5rem;
   font-size: 0.8125rem;
   color: var(--muted);
 }
 
-.toolbar-hint.sync-warning {
+.status-line.warning {
   color: var(--warning);
+}
+
+/* ── 右鍵選單：毛玻璃面板，圖示加文字 ───────────────────── */
+
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  min-width: 11rem;
+  padding: 6px;
+  background: var(--bar-bg);
+  box-shadow: var(--float-shadow);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
+  backdrop-filter: saturate(1.8) blur(20px);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: none;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.menu-item svg {
+  flex: none;
+  color: var(--muted);
+}
+
+/* 不用 .danger：那是紅底白字的按鈕樣式 */
+.menu-item.menu-danger,
+.menu-item.menu-danger svg {
+  color: var(--error);
+}
+
+.menu-item:disabled {
+  opacity: 1;
+  color: var(--muted);
+}
+
+/* 右邊的快捷鍵說明 */
+.menu-shortcut {
+  margin-left: auto;
+  padding-left: 1.5rem;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.menu-item:focus-visible {
+  outline: none;
+  background: var(--accent-soft);
+}
+
+@media (hover: hover) {
+  .menu-item:not(:disabled):hover {
+    background: var(--accent-soft);
+  }
+}
+
+.menu-separator {
+  height: 0.5px;
+  margin: 4px 0.4rem;
+  background: var(--hairline);
 }
 
 .first-sync {
@@ -723,6 +902,27 @@ button.link {
   background: var(--accent-soft);
 }
 
+/* 正在開右鍵選單的項目 */
+.tree-row.menu-target {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 剪下、還沒貼上的項目 */
+.tree-row.cut {
+  opacity: 0.45;
+}
+
+/* 拖曳時要放進去的資料夾；放到最上層時框住整個樹 */
+.tree-row.drop-target,
+.tree-row.drop-target:hover {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.panel-body.drop-root {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 @media (hover: hover) {
   .tree-row:not(.selected):hover {
     background: var(--fill-2);
@@ -732,11 +932,6 @@ button.link {
   .tree-row :is(.tree-toggle, .tree-item):not(:disabled):hover {
     background: none;
   }
-}
-
-/* 移動對話框裡的樹在白底上，hover 用淺灰 */
-.picker .tree-row:not(.selected):hover {
-  background: var(--fill);
 }
 
 .tree-toggle,
@@ -766,6 +961,10 @@ button.link {
 }
 
 .tree-item {
+  /* 長按開選單時，不要選取文字或跳出系統的選單 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   flex: 1;
   display: flex;
   align-items: center;
@@ -792,12 +991,6 @@ button.link {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.tree-tag {
-  margin-left: auto;
-  font-size: 0.75rem;
-  color: var(--muted);
 }
 
 .tree-note {
@@ -864,12 +1057,6 @@ button.link {
   gap: 0.5rem;
 }
 
-.picker {
-  max-height: 50vh;
-  overflow-y: auto;
-  padding: 0.25rem 0;
-  border-block: 0.5px solid var(--hairline);
-}
 
 /* ── 動態效果：使用者要求減少動態時關掉 ───────────────────── */
 
@@ -883,6 +1070,7 @@ button.link {
 
 @media (prefers-reduced-transparency: reduce) {
   .topbar,
+  .context-menu,
   .modal::backdrop {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -903,15 +1091,29 @@ button.link {
     top: 0;
   }
 
-  .workspace {
+  /* 窄螢幕暫時沿用上下排列（第 4 步再改成側欄、編輯器各一個畫面） */
+  .workspace,
+  .workspace.sidebar-hidden {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr;
+  }
+
+  .activity-bar {
+    display: none;
+  }
+
+  .workspace.sidebar-hidden .sidebar {
+    display: flex;
   }
 
   .sidebar {
     border-right: 0;
     border-bottom: 0.5px solid var(--hairline);
+  }
+
+  .panel-body {
     overflow-y: visible;
+    padding-bottom: 1rem;
   }
 
   .detail {

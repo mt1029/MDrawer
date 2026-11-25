@@ -13,6 +13,7 @@ import {
   recordCreate,
   recordUpdate,
   snapshot,
+  uniqueName,
   toLocal,
   toMeta,
   toTree,
@@ -20,7 +21,7 @@ import {
   type Field,
   type WriteTx,
 } from './localDb.ts'
-import { RepoError, normalizeName, sortNodes, validateName, type NodeMeta } from './nodes.ts'
+import { RepoError, normalizeName, sortNodes, validateName, type NodeMeta, type TreeNode } from './nodes.ts'
 import type { Repo } from './repo.ts'
 
 export interface LocalRepoOptions {
@@ -216,6 +217,47 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
             seq: nextSeq(),
           })
         }
+      })
+    },
+
+    async copyNode(id, targetParentId) {
+      return write(async (tx) => {
+        const nodes = tx.objectStore('nodes')
+        const source = await nodes.get(id)
+        if (!source) throw new RepoError('not_found', NOT_FOUND_MESSAGE)
+        const parentKey = await parentKeyOf(tx, targetParentId)
+
+        // 資料夾不能複製到自己或自己的子孫底下（會一直複製下去）
+        for (let current = targetParentId; current; current = (await nodes.get(current))?.parent_id ?? null) {
+          if (current === id) throw new RepoError('invalid_move', '不能貼到自己或自己底下的資料夾。')
+        }
+
+        // 先讀出整個子樹，再建立副本：父先子後，每個項目換成新的 id
+        const subtree: TreeNode[] = [toTree(source)]
+        for (let i = 0; i < subtree.length; i++) {
+          if (subtree[i].type === 'folder') {
+            subtree.push(...(await nodes.index('by_parent').getAll(subtree[i].id)).map(toTree))
+          }
+        }
+        const newId = new Map(subtree.map((node) => [node.id, crypto.randomUUID()]))
+        const time = now().toISOString()
+        const topName = await uniqueName(tx, parentKey, source.name)
+        let top: NodeMeta | null = null
+        for (const node of subtree) {
+          const isTop = node.id === id
+          const copy = toLocal({
+            ...node,
+            id: newId.get(node.id)!,
+            parent_id: isTop ? targetParentId : newId.get(node.parent_id!)!,
+            name: isTop ? topName : node.name,
+            version: 0,
+            created_at: time,
+            updated_at: time,
+          })
+          await recordCreate(tx, copy)
+          if (isTop) top = toMeta(copy)
+        }
+        return top!
       })
     },
 

@@ -289,6 +289,7 @@ export function createMirror(options: MirrorOptions): Mirror {
     updateNode: guarded(local.updateNode),
     moveNode: guarded(local.moveNode),
     deleteNode: guarded(local.deleteNode),
+    copyNode: guarded(local.copyNode),
     // 圖片只存在雲端，連線且已登入時才能用
     uploadImage: (image) => (canUseCloud() ? online.uploadImage(image) : local.uploadImage(image)),
     getImageUrls: (ids) => (canUseCloud() ? online.getImageUrls(ids) : local.getImageUrls(ids)),

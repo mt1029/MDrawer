@@ -5,6 +5,7 @@ import { createCloud, toRepoError } from './cloud.ts'
 import {
   RepoError,
   normalizeName,
+  numberedName,
   sortNodes,
   validateName,
   type NodeMeta,
@@ -189,6 +190,41 @@ async function deleteNode(id: string): Promise<void> {
   }
 }
 
+async function copyNode(id: string, targetParentId: string | null): Promise<NodeMeta> {
+  const source = await getNode(id)
+  if (!source) throw new RepoError('not_found', '找不到這個項目，可能已經被刪除。請重新整理後再試。')
+  if (targetParentId) {
+    // 從目標往上找，不能遇到來源（不能複製到自己底下）
+    for (let current: string | null = targetParentId; current; ) {
+      if (current === id) throw new RepoError('invalid_move', '不能貼到自己或自己底下的資料夾。')
+      current = (await getNode(current))?.parent_id ?? null
+    }
+  }
+  // 同名時加上「 (2)」「 (3)」…
+  let top: NodeMeta | null = null
+  for (let n = 1; !top; n++) {
+    const name = n === 1 ? source.name : numberedName(source.name, n)
+    try {
+      top = await createNode({ parentId: targetParentId, type: source.type, name, content: source.content ?? undefined })
+    } catch (err) {
+      if (!(err instanceof RepoError && err.kind === 'duplicate_name') || n >= 20) throw err
+    }
+  }
+  if (source.type === 'folder') {
+    for (const child of await listChildren(source.id)) await copyChildren(child.id, top.id)
+  }
+  return top
+}
+
+async function copyChildren(id: string, parentId: string): Promise<void> {
+  const source = await getNode(id)
+  if (!source) return
+  const copy = await createNode({ parentId, type: source.type, name: source.name, content: source.content ?? undefined })
+  if (source.type === 'folder') {
+    for (const child of await listChildren(source.id)) await copyChildren(child.id, copy.id)
+  }
+}
+
 // ── 圖片（Storage）──────────────────────────────────────────
 // 路徑為「使用者 id/圖片 id」，不加副檔名，格式記在 Content-Type（WebP 或 JPEG）
 
@@ -290,6 +326,7 @@ export const onlineRepo: Repo = {
   updateNode,
   moveNode,
   deleteNode,
+  copyNode,
   uploadImage,
   getImageUrls,
   downloadImage,
