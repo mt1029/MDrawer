@@ -42,6 +42,9 @@ const cloud: Cloud = {
     rows.set(id, next)
     return { ...next }
   },
+  async removeImageIfUnused() {
+    return false
+  },
 }
 
 // 圖片用的線上版 repo：只記錄有沒有被呼叫

@@ -1,10 +1,39 @@
-import { memo, useState, type CSSProperties, type Ref, type TextareaHTMLAttributes } from 'react'
+import {
+  memo,
+  useCallback,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type Ref,
+  type SetStateAction,
+  type TextareaHTMLAttributes,
+} from 'react'
 import { lineAt } from '../lib/lines.ts'
 
 /** 行號欄最少留兩位數的寬度，行數變多時才加寬，打字時不會一直跳 */
 const MIN_DIGITS = 2
 
 type LineState = 'current' | 'active' | null
+
+/** 游標所在的行與有沒有選取文字；沒有焦點時為 null */
+type Caret = { line: number; collapsed: boolean } | null
+
+/** 依 textarea 目前的選取範圍更新游標所在的行 */
+function trackCaret(textarea: HTMLTextAreaElement, setCaret: Dispatch<SetStateAction<Caret>>) {
+  // 沒有焦點時沒有游標，不標示（例如程式改了內容）
+  if (textarea !== document.activeElement) return
+  // 游標在選取範圍的哪一端：往回選時在開頭
+  const end = textarea.selectionDirection === 'backward' ? textarea.selectionStart : textarea.selectionEnd
+  const line = lineAt(textarea.value, end)
+  const collapsed = textarea.selectionStart === textarea.selectionEnd
+  setCaret((prev) => (prev && prev.line === line && prev.collapsed === collapsed ? prev : { line, collapsed }))
+}
+
+/** 把元素交給外面傳進來的 ref（函式或物件都可以） */
+function assignRef<T>(ref: Ref<T> | undefined, value: T | null) {
+  if (typeof ref === 'function') ref(value)
+  else if (ref) ref.current = value
+}
 
 /**
  * 背景的一行：左邊是行號，右邊是跟編輯框一樣的文字（透明），讓這一行的高度跟編輯框裡自動換行後的高度一樣。
@@ -35,17 +64,26 @@ type Props = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'classN
  */
 export default function EditorInput({ value, ref, onChange, onFocus, onBlur, onSelect, ...rest }: Props) {
   // 游標所在的行；沒有焦點時為 null（不標示）。選取一段文字時不標示整行，只把行號變亮（跟 VS Code 一樣）
-  const [caret, setCaret] = useState<{ line: number; collapsed: boolean } | null>(null)
+  const [caret, setCaret] = useState<Caret>(null)
+  const track = (textarea: HTMLTextAreaElement) => trackCaret(textarea, setCaret)
 
-  function track(textarea: HTMLTextAreaElement) {
-    // 沒有焦點時沒有游標，不標示（例如程式改了內容）
-    if (textarea !== document.activeElement) return
-    // 游標在選取範圍的哪一端：往回選時在開頭
-    const end = textarea.selectionDirection === 'backward' ? textarea.selectionStart : textarea.selectionEnd
-    const line = lineAt(textarea.value, end)
-    const collapsed = textarea.selectionStart === textarea.selectionEnd
-    setCaret((prev) => (prev && prev.line === line && prev.collapsed === collapsed ? prev : { line, collapsed }))
-  }
+  // 程式改選取範圍（例如從搜尋結果打開時選取符合的字、插入圖片後移動游標）不會觸發 React 的 onSelect，
+  // 另外聽 textarea 原生的 select 與 selectionchange 事件
+  const attach = useCallback(
+    (textarea: HTMLTextAreaElement | null) => {
+      assignRef(ref, textarea)
+      if (!textarea) return
+      const update = () => trackCaret(textarea, setCaret)
+      textarea.addEventListener('select', update)
+      textarea.addEventListener('selectionchange', update)
+      return () => {
+        textarea.removeEventListener('select', update)
+        textarea.removeEventListener('selectionchange', update)
+        assignRef(ref, null)
+      }
+    },
+    [ref],
+  )
 
   // textarea 會把 \r\n 當成一個換行，這裡也一樣
   const lines = value.replace(/\r\n?/g, '\n').split('\n')
@@ -64,7 +102,7 @@ export default function EditorInput({ value, ref, onChange, onFocus, onBlur, onS
         ))}
       </div>
       <textarea
-        ref={ref}
+        ref={attach}
         className="code-input"
         value={value}
         {...rest}

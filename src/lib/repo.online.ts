@@ -75,7 +75,8 @@ async function createNode(input: CreateNodeInput): Promise<NodeMeta> {
       parent_id: input.parentId,
       type: input.type,
       name,
-      content: input.type === 'note' ? (input.content ?? '') : null,
+      // 圖片的 content 是圖片檔 id（資料庫會檢查格式）。核心層的線上版不支援 rename，L2 起由本機版處理
+      content: input.type === 'folder' ? null : input.type === 'note' ? (input.content ?? '') : (input.content ?? null),
     })
     .select(META_COLUMNS)
     .single()

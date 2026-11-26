@@ -24,10 +24,13 @@ export const ICON_OPTICAL_SHIFT: Record<string, number> = {
   IconMarkdown: 0,
   IconMenu2: 0,
   IconPencil: 0.49,
+  IconPhoto: -0.08,
   IconPhotoPlus: 0.23,
+  IconPhotoUp: 0.2,
   IconRefresh: 0,
+  IconSearch: 0.8,
   IconTrash: 0,
 }
 
 /** 選單的圖示靠左排時，整欄要移多少，這一團的左緣才會平均對齊文字的左邊 */
-export const MENU_ICON_SHIFT = -2.18
+export const MENU_ICON_SHIFT = -2.01

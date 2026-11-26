@@ -30,6 +30,8 @@ function fakeCloud() {
     failUpdates: false,
     /** 每次寫入前執行（模擬推送期間使用者又修改） */
     beforeWrite: undefined as undefined | (() => Promise<void>),
+    /** Storage 裡被刪掉的圖片檔 id */
+    removedFiles: [] as string[],
   }
   const clone = (row: CloudRow): CloudRow => ({ ...row })
   const check = () => {
@@ -99,6 +101,17 @@ function fakeCloud() {
       rows.set(id, next)
       return respond(next)
     },
+    async removeImageIfUnused(fileId) {
+      check()
+      const used = [...rows.values()].some(
+        (row) =>
+          !row.deleted_at &&
+          ((row.type === 'image' && row.content === fileId) || (row.type === 'note' && (row.content ?? '').includes(`img:${fileId}`))),
+      )
+      if (used) return false
+      state.removedFiles.push(fileId)
+      return true
+    },
   }
 
   /** 雲端上未刪除、名稱相符的列 */
@@ -166,6 +179,99 @@ describe('本機寫入：離線也能新增、修改、移動、刪除', () => {
     await a.repo.deleteNode(folder.id)
     expect(await a.repo.listAll()).toEqual([])
     expect(await a.pending()).toEqual([])
+  })
+})
+
+describe('資料夾裡的圖片', () => {
+  const FILE = 'bbbbbbbb-0000-4000-8000-000000000001'
+  const FILE2 = 'bbbbbbbb-0000-4000-8000-000000000002'
+
+  it('圖片是一個項目，content 是圖片檔的 id；推送到雲端的列也是', async () => {
+    const a = device()
+    const folder = await a.repo.createNode({ parentId: null, type: 'folder', name: '課程' })
+    const image = await a.repo.createNode({ parentId: folder.id, type: 'image', name: '架構圖.webp', content: FILE })
+    expect(image.type).toBe('image')
+    expect(await a.content(image.id)).toBe(FILE)
+    await a.sync()
+    expect(fake.rows.get(image.id)).toMatchObject({ type: 'image', name: '架構圖.webp', content: FILE, parent_id: folder.id })
+  })
+
+  it('圖片的 content 一定要是圖片檔的 id', async () => {
+    const a = device()
+    await expectRepoError(a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp' }), 'unknown')
+    await expectRepoError(a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: 'not-an-id' }), 'unknown')
+    expect(await a.names()).toEqual([])
+  })
+
+  it('rename：撞名時自動加編號，圖片的編號在副檔名前面', async () => {
+    const a = device()
+    await a.repo.createNode({ parentId: null, type: 'image', name: '照片.webp', content: FILE })
+    const second = await a.repo.createNode({ parentId: null, type: 'image', name: '照片.WEBP', content: FILE2, rename: true })
+    expect(second.name).toBe('照片 (2).WEBP')
+    // 沒有 rename 時照樣丟出撞名
+    await expectRepoError(a.repo.createNode({ parentId: null, type: 'image', name: '照片.webp', content: FILE2 }), 'duplicate_name')
+  })
+
+  it('複製圖片：新的項目、共用同一個圖片檔（離線也能複製）', async () => {
+    const a = device()
+    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
+    const copy = await a.repo.copyNode(image.id, null)
+    expect(copy).toMatchObject({ type: 'image', name: 'a (2).webp' })
+    expect(await a.content(copy.id)).toBe(FILE)
+  })
+
+  it('刪除圖片：推送後刪掉 Storage 的檔案；還有副本用到時保留，副本也刪了才刪檔案', async () => {
+    const a = device()
+    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
+    const copy = await a.repo.copyNode(image.id, null)
+    await a.sync()
+
+    await a.repo.deleteNode(image.id)
+    await a.sync()
+    expect(fake.rows.get(image.id)?.deleted_at).not.toBeNull()
+    expect(fake.state.removedFiles).toEqual([]) // 副本還在用
+
+    await a.repo.deleteNode(copy.id)
+    await a.sync()
+    expect(fake.state.removedFiles).toEqual([FILE])
+  })
+
+  it('刪除資料夾連同裡面的圖片：圖片檔也刪掉；刪除筆記不會動到圖片檔', async () => {
+    const a = device()
+    const folder = await a.repo.createNode({ parentId: null, type: 'folder', name: '資料夾' })
+    await a.repo.createNode({ parentId: folder.id, type: 'image', name: 'a.webp', content: FILE })
+    const note = await a.repo.createNode({ parentId: null, type: 'note', name: '筆記', content: '文字' })
+    await a.sync()
+    await a.repo.deleteNode(note.id)
+    await a.sync()
+    expect(fake.state.removedFiles).toEqual([])
+    await a.repo.deleteNode(folder.id)
+    await a.sync()
+    expect(fake.state.removedFiles).toEqual([FILE])
+  })
+
+  it('舊的筆記還用 ![](img:<id>) 引用同一個檔案時保留', async () => {
+    const a = device()
+    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
+    await a.repo.createNode({ parentId: null, type: 'note', name: '舊筆記', content: `![](img:${FILE})` })
+    await a.sync()
+    await a.repo.deleteNode(image.id)
+    await a.sync()
+    expect(fake.state.removedFiles).toEqual([])
+  })
+
+  it('刪除圖片時 Storage 刪不掉（例如斷線）不影響同步', async () => {
+    const a = device()
+    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
+    await a.sync()
+    await a.repo.deleteNode(image.id)
+    fake.cloud.removeImageIfUnused = async () => {
+      throw new RepoError('network', '無法連線')
+    }
+    const report = await a.sync()
+    expect(report.failed).toEqual([])
+    expect(await a.pending()).toEqual([])
+    expect(fake.rows.get(image.id)?.deleted_at).not.toBeNull()
   })
 })
 

@@ -111,11 +111,11 @@ export const strings = {
 
   /** 檔案總管（側欄、樹、右鍵選單）與右側的標題區（Workspace、FileTree） */
   workspace: {
-    types: { folder: '資料夾', note: '筆記' },
+    types: { folder: '資料夾', note: '筆記', image: '圖片' },
     /** 新增到哪裡、右鍵選單標題用的「最上層」 */
     topLevel: '最上層',
     activityBar: '面板',
-    explorer: 'Explorer',
+    explorer: 'EXPLORER',
     tree: '資料夾樹',
     newNoteIn: (place: string) => `新增筆記到${place}`,
     newFolderIn: (place: string) => `新增資料夾到${place}`,
@@ -134,6 +134,9 @@ export const strings = {
       topLevelLabel: '最上層的操作',
       newNote: '新增筆記',
       newFolder: '新增資料夾',
+      /** 資料夾的右鍵選單：選擇圖片檔上傳到這個資料夾（可以一次選多張） */
+      uploadImages: '上傳圖片',
+      uploadImagesOffline: '上傳圖片（離線時無法上傳）',
       cut: '剪下',
       copy: '複製',
       paste: '貼上',
@@ -174,8 +177,48 @@ export const strings = {
       delete: '刪除',
       deleteFolder: (name: string) => `${quoted(name)}和裡面所有的資料夾、筆記都會被刪除。`,
       deleteNote: (name: string) => `${quoted(name)}會被刪除。`,
+      deleteImage: (name: string) => `${quoted(name)}會被刪除，筆記裡用到它的地方會顯示找不到圖片。`,
       noTrash: '目前沒有垃圾桶，刪除後無法從畫面上還原。',
     },
+  },
+
+  /** 搜尋面板（SearchPanel） */
+  search: {
+    title: 'SEARCH',
+    /** 縮短時接在後面的符號：很長的行只顯示符合處附近、太長的資料夾路徑只留第一個字（例如 /o.../t.../） */
+    ellipsis: '...',
+    /** 左側圖示欄的搜尋圖示，游標停留時顯示；shortcut 是 ⇧⌘F 或 Ctrl+Shift+F */
+    buttonHint: (shortcut: string) => `搜尋（${shortcut}）`,
+    inputLabel: '搜尋筆記',
+    placeholder: '搜尋筆記的名稱與內容',
+    /** 還沒輸入時的說明 */
+    hint: '搜尋這台裝置上所有筆記的名稱與內容。',
+    summary: (notes: number, matches: number) => `${notes} 篇筆記，共 ${matches} 處`,
+    /** 結果太多、只列出一部分時 */
+    truncated: (shown: number) => `只列出前 ${shown} 篇，輸入更多字可以縮小範圍。`,
+    noResults: (query: string) => `找不到${quoted(query)}。`,
+    /** 一篇筆記沒有列出的行裡還有幾處 */
+    more: (count: number) => `還有 ${count} 處`,
+    /** 結果的說明（給螢幕閱讀器）；count 是內容裡符合的處數 */
+    noteLabel: (name: string, path: string, count: number) => `${name}，在 ${path}，內容 ${count} 處`,
+    lineLabel: (line: number, text: string) => `第 ${line} 行：${text}`,
+    failed: '無法讀取這台裝置上的筆記，請重新整理頁面。',
+  },
+
+  /** 上傳圖片到資料夾、選了圖片時右側的預覽（Workspace、ImageViewer） */
+  images: {
+    /** 上傳中（側欄上方）；done、total 是第幾張、共幾張 */
+    uploading: (done: number, total: number) => `正在上傳圖片...（${done}/${total}）`,
+    uploaded: (count: number) => `已上傳 ${count} 張圖片。`,
+    /** 有些失敗時；name 是第一張失敗的檔名 */
+    someFailed: (failed: number, name: string, message: string) => `${failed} 張圖片沒有上傳（${name}：${message}）`,
+    /** 預覽 */
+    previewLabel: '圖片預覽',
+    loading: '正在載入圖片...',
+    offline: '離線時無法顯示圖片。',
+    missing: '找不到這張圖片的檔案。',
+    /** 圖片的寬與高（像素） */
+    dimensions: (width: number, height: number) => `${width} × ${height}`,
   },
 
   /** 筆記編輯器（NoteEditor） */
@@ -301,6 +344,8 @@ export const strings = {
       urlFailed: '無法取得圖片網址，請確認網路後重新整理。',
       notFound: '圖片已遺失。',
       downloadNetwork: '無法連線到伺服器，故沒有下載圖片。',
+      /** 建立圖片項目時圖片檔的 id 不對（程式錯誤，不應該發生） */
+      invalidFile: '圖片檔的資料不正確，請重新上傳。',
     },
     /** 匯出 ZIP */
     exportOffline: '離線時無法匯出，請確認網路連線。',

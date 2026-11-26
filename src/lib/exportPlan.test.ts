@@ -68,9 +68,18 @@ describe('planExport：資料夾結構與相對路徑', () => {
 })
 
 describe('planExport：避免撞名', () => {
-  it('最上層的「images」資料夾讓給圖片，使用者的改名為 images (2)', () => {
-    const plan = planExport([node({ type: 'folder', name: 'images' })], ext)
+  it('有舊的 img:<id> 時，最上層的「images」讓給它們的圖片，使用者的改名為 images (2)', () => {
+    const plan = planExport(
+      [node({ type: 'folder', name: 'images' }), node({ type: 'note', name: '舊', content: `![](img:${IMG_A})` })],
+      ext,
+    )
     expect(plan.folders[0].path).toBe('images (2)')
+  })
+
+  it('沒有舊的 img:<id> 時，使用者自己的「images」資料夾維持原名（裡面的圖片被相對路徑引用）', () => {
+    const plan = planExport([node({ type: 'folder', name: 'images' })], ext)
+    expect(plan.folders[0].path).toBe('images')
+    expect(plan.legacyImages).toEqual([])
   })
 
   it('淨化後同名（不分大小寫）時加上編號', () => {
@@ -150,5 +159,52 @@ describe('buildZip：解壓後圖片連結都找得到檔案（spec 驗收條件
     const plan = planExport([node({ type: 'note', name: '缺圖', content: `![](img:${MISSING})` })], () => 'webp')
     const zip = await JSZip.loadAsync(await buildZip(plan, new Map()))
     expect(await zip.file('缺圖.md')!.async('string')).toBe(`![](images/${MISSING}.webp)`)
+  })
+})
+
+describe('planExport：資料夾裡的圖片', () => {
+  const FILE = 'cccccccc-0000-4000-8000-000000000001'
+
+  it('放在所在的資料夾，名稱照用；筆記裡的相對路徑不用改', () => {
+    const course = node({ type: 'folder', name: '課程' })
+    const image = node({ type: 'image', name: '架構圖.webp', parent_id: course.id, content: FILE })
+    const note = node({ type: 'note', name: '筆記', parent_id: course.id, content: '![](架構圖.webp)' })
+    const plan = planExport([course, image, note], ext)
+    expect(plan.images).toEqual([{ path: '課程/架構圖.webp', fileId: FILE, date: new Date('2026-11-25T08:30:00Z') }])
+    expect(plan.notes[0].content).toBe('![](架構圖.webp)')
+    expect(plan.legacyImages).toEqual([])
+  })
+
+  it('名稱沒有副檔名時依圖片檔的格式加上；撞名時編號在副檔名前面', () => {
+    const plan = planExport(
+      [
+        node({ type: 'image', name: '截圖', content: FILE }),
+        node({ type: 'image', name: 'a.webp', content: FILE }),
+        node({ type: 'image', name: 'A?.webp', content: FILE }),
+      ],
+      () => 'jpg',
+    )
+    expect(plan.images.map((i) => i.path).sort()).toEqual(['a.webp', 'A_.webp', '截圖.jpg'].sort())
+  })
+})
+
+describe('buildZip：資料夾裡的圖片', () => {
+  it('圖片放在它的路徑；找不到的略過', async () => {
+    const FILE = 'cccccccc-0000-4000-8000-000000000002'
+    const MISSING = 'cccccccc-0000-4000-8000-000000000003'
+    const folder = node({ type: 'folder', name: '圖' })
+    const plan = planExport(
+      [
+        folder,
+        node({ type: 'image', name: 'a.webp', parent_id: folder.id, content: FILE }),
+        node({ type: 'image', name: 'b.webp', parent_id: folder.id, content: MISSING }),
+      ],
+      ext,
+    )
+    const blob = await buildZip(plan, new Map([[FILE, new Blob([new Uint8Array([1, 2, 3])], { type: 'image/webp' })]]))
+    const zip = await JSZip.loadAsync(blob)
+    expect(zip.file('圖/a.webp')).not.toBeNull()
+    expect(zip.file('圖/b.webp')).toBeNull()
+    expect(Object.keys(zip.files).some((path) => path.startsWith('images/'))).toBe(false)
   })
 })

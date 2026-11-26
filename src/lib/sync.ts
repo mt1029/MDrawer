@@ -313,7 +313,13 @@ async function pushDelete(ctx: Context, change: PendingChange) {
   const row = await ctx.cloud.updateIfVersion(change.id, { deleted_at: ctx.now().toISOString() }, change.base!.version)
   if (row) {
     ctx.folders.set(change.id, false)
-    return commit(ctx, change, row)
+    await commit(ctx, change, row)
+    // 圖片：雲端已經標記刪除，沒有其他地方用到的話把 Storage 裡的檔案也刪掉。
+    // 失敗（例如斷線）不影響這次同步，只是留下用不到的檔案
+    if (row.type === 'image' && row.content) {
+      await ctx.cloud.removeImageIfUnused(row.content).catch(() => false)
+    }
+    return
   }
   const [current] = await ctx.cloud.getRows([change.id])
   // 雲端已經是刪除狀態（另一台也刪了，或之前推送成功但沒收到回應）

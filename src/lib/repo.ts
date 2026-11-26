@@ -15,7 +15,10 @@ export interface CreateNodeInput {
   parentId: string | null
   type: NodeType
   name: string
+  /** 筆記的內容；圖片是 uploadImage 回傳的圖片檔 id（必填） */
   content?: string
+  /** 同一層已有同名的項目時自動加「 (2)」，而不是丟出 duplicate_name（上傳圖片用） */
+  rename?: boolean
 }
 
 export interface UpdateNodeInput {
@@ -33,7 +36,7 @@ export interface Repo {
   listChildren(parentId: string | null): Promise<NodeMeta[]>
   /** 取得單一項目（含筆記內容），找不到或已刪除時回傳 null */
   getNode(id: string): Promise<TreeNode | null>
-  /** 所有未刪除的資料夾與筆記（含內容），匯出 ZIP 用 */
+  /** 所有未刪除的資料夾、筆記與圖片（含內容），匯出 ZIP、搜尋用 */
   listAll(): Promise<TreeNode[]>
   createNode(input: CreateNodeInput): Promise<NodeMeta>
   updateNode(id: string, patch: UpdateNodeInput): Promise<NodeMeta>
@@ -46,9 +49,12 @@ export interface Repo {
    * 目標資料夾裡已經有同名的項目時，名稱加上「 (2)」。不能複製到自己或自己的子孫底下。
    */
   copyNode(id: string, targetParentId: string | null): Promise<NodeMeta>
-  /** 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片 id。筆記裡寫成 ![](img:<id>) */
+  /**
+   * 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片檔 id。
+   * 接著用 createNode({ type: 'image', content: id }) 放進資料夾（舊的筆記裡也有直接寫成 ![](img:<id>) 的）
+   */
   uploadImage(image: Blob): Promise<string>
-  /** 取得圖片的短效網址。找不到或沒有權限的圖片回傳 null */
+  /** 取得圖片檔的短效網址（ids 是圖片檔 id）。找不到或沒有權限的圖片回傳 null */
   getImageUrls(ids: string[]): Promise<Record<string, string | null>>
   /** 下載圖片檔，匯出 ZIP 用。Blob 的 type 為 image/webp 或 image/jpeg */
   downloadImage(id: string): Promise<Blob>

@@ -124,6 +124,20 @@ try {
     check(`名稱「${bad}」被擋`, r.error?.code === '23514', r.error?.code ?? '竟然成功了')
   }
 
+  // 資料夾裡的圖片（20261126000000_images_in_folders.sql）：content 必須是圖片檔的 uuid
+  const image = await insert(
+    a,
+    { id: randomUUID(), parent_id: folderId, type: 'image', name: '圖.webp', content: randomUUID() },
+    createdByA,
+  )
+  check('圖片項目（content 是 uuid）可以建立', !image.error, image.error?.message)
+  for (const [label, content] of [['圖片沒有 content 被擋', null], ['圖片的 content 不是 uuid 被擋', 'not-a-uuid']]) {
+    const r = await insert(a, { id: randomUUID(), parent_id: folderId, type: 'image', name: `${content ?? 'empty'}.webp`, content }, createdByA)
+    check(label, r.error?.code === '23514', r.error?.code ?? '竟然成功了')
+  }
+  const video = await insert(a, { id: randomUUID(), parent_id: folderId, type: 'video', name: 'v' }, createdByA)
+  check('不認得的 type 被擋', video.error?.code === '23514', video.error?.code ?? '竟然成功了')
+
   const selfId = randomUUID()
   const self = await insert(a, { id: selfId, parent_id: selfId, type: 'folder', name: 'Self' }, createdByA)
   check('上層資料夾指向自己被擋', self.error?.code === '23514', self.error?.code ?? '竟然成功了')

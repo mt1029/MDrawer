@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { ImageError, compressImage, formatBytes } from '../lib/image.ts'
+import { lineAt } from '../lib/lines.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
 import { RepoError, mirror, repo, type NodeMeta } from '../lib/repo.ts'
 import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
@@ -49,6 +50,13 @@ function saveSplit(split: boolean) {
 
 const SAVE_LABEL: Record<SaveState, string> = strings.editor.saveState
 
+/** 從搜尋結果打開時要捲到、選取的位置；key 每次不同，同一篇再點一次也會執行 */
+export interface Reveal {
+  offset: number
+  length: number
+  key: number
+}
+
 interface Props {
   noteId: string
   /** 可以連到雲端（連線且已登入）：才能插入、顯示圖片。文字隨時都能編輯，先存在這台裝置 */
@@ -57,6 +65,7 @@ interface Props {
   onSaved: (node: NodeMeta) => void
   /** 畫出標題區；傳進去的內容（儲存狀態、圖示）放在名稱的同一行 */
   renderHeader: (inline?: ReactNode) => ReactNode
+  reveal?: Reveal
 }
 
 /**
@@ -64,7 +73,7 @@ interface Props {
  * 在眼睛上按右鍵或長按可以改成並排。停止輸入一秒後自動儲存到這台裝置，再在背景同步。
  * 儲存狀態與圖示放在標題同一行，不另外佔一行
  */
-export default function NoteEditor({ noteId, cloud, onSaved, renderHeader }: Props) {
+export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, reveal }: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -74,6 +83,8 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader }: Pro
   const view: View = split ? 'split' : previewOnly ? 'preview' : 'edit'
   const [menu, setMenu] = useState<MenuRequest | null>(null)
   const narrow = useMediaQuery('(max-width: 720px)')
+  // 有滑鼠的裝置：從搜尋結果打開時選取符合的文字（觸控裝置不選，免得跳出鍵盤）
+  const hasMouse = useMediaQuery('(hover: hover) and (pointer: fine)')
   const [imageStatus, setImageStatus] = useState<ImageStatus | null>(null)
   // 衝突時的說明（這次的內容已另存為衝突副本）
   const [notice, setNotice] = useState<string | null>(null)
@@ -181,6 +192,29 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader }: Pro
       }),
     [noteId],
   )
+
+  // 從搜尋結果打開：只看預覽時先換回編輯區（在 render 時就調整，不用等 effect 再畫一次）
+  const [revealKey, setRevealKey] = useState<number | null>(null)
+  if (reveal && reveal.key !== revealKey) {
+    setRevealKey(reveal.key)
+    setPreviewOnly(false)
+  }
+  // 捲到符合的那一行；有滑鼠的裝置再選取符合的文字。每個 key 只做一次（打字時內容改變不會再捲）
+  const revealed = useRef<number | null>(null)
+  useEffect(() => {
+    if (!reveal || content === null || revealed.current === reveal.key) return
+    const input = textarea.current
+    if (!input) return
+    revealed.current = reveal.key
+    const start = Math.min(reveal.offset, input.value.length)
+    const end = Math.min(start + reveal.length, input.value.length)
+    const row = input.closest('.code-editor')?.querySelectorAll('.code-line')[lineAt(input.value, start)]
+    row?.scrollIntoView({ block: 'center' })
+    if (hasMouse) {
+      input.focus({ preventScroll: true })
+      input.setSelectionRange(start, end)
+    }
+  }, [reveal, content, hasMouse])
 
   // 有未儲存的修改時，關閉分頁前提醒
   useEffect(() => {

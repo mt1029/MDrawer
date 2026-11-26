@@ -122,6 +122,31 @@ SQL 在 [supabase/migrations/20261123010000_create_images_bucket.sql](../supabas
 | 執行 SQL 出現 `duplicate key value violates unique constraint "buckets_pkey"` | bucket 已經存在，可能在 Dashboard 手動建過。到 Storage 刪掉 `images` bucket 後重跑，或只執行 `create policy` 那段 |
 | Vercel 上整個網站壞掉，Console 一堆 Content-Security-Policy 錯誤 | `VITE_SUPABASE_URL` 與實際專案不符，CSP 會擋掉 Supabase 的連線。確認環境變數後 Redeploy |
 
+# 資料夾裡的圖片（11/26：圖片放進資料夾第 1 步）
+
+圖片跟資料夾、筆記一樣是 `nodes` 的一列，`type` 為 `image`，可以在檔案總管改名、移動、複製、刪除。`content` 是 Storage 裡圖片檔的 uuid（`images` bucket 的「使用者 id/uuid」）。複製圖片時兩列共用同一個檔案（離線也能複製），所以檔案的 uuid 不放在 `id`。
+
+SQL 在 [supabase/migrations/20261126000000_images_in_folders.sql](../supabase/migrations/20261126000000_images_in_folders.sql)，只改 `type` 的檢查、加一條「圖片的 content 必須是 uuid」，RLS、觸發器、索引、Storage 政策都不變。
+
+## A. 執行 SQL
+
+1. SQL Editor → New query → 貼上整份 `.sql` → Run。只需執行一次。
+2. 確認：**Database → Tables → nodes → Constraints** 有 `nodes_type_check`（`folder`、`note`、`image`）與 `nodes_image_file`。
+
+還沒執行時，新增圖片會推送失敗，側欄顯示「1 項修改無法同步：名稱不符格式…」（資料庫的檢查擋下來，錯誤代碼跟名稱規則相同，所以訊息是名稱的）。執行後按重新整理就會推送。
+
+## B. 驗證
+
+| # | 操作 | 預期結果 |
+| --- | --- | --- |
+| 1 | 終端機執行 `npm run test:rls` | 全部 ✅，多了 4 項：圖片項目可以建立、沒有 content 被擋、content 不是 uuid 被擋、不認得的 type 被擋 |
+| 2 | 終端機執行 `npm run test:sync` | 全部 ✓（同步用的請求沒有變） |
+| 3 | 在資料夾上按右鍵 →「上傳圖片」，選兩張同名的照片 | 側欄上方顯示「正在上傳圖片...（1/2）」→「已上傳 2 張圖片。」；資料夾裡多了「照片.webp」「照片 (2).webp」（Safari 為 .jpg），右側顯示最後一張的預覽與寬 × 高 |
+| 4 | Table Editor → nodes | 兩列的 `type` 是 `image`，`content` 是 uuid；Storage → images → 你的 id 資料夾裡有同樣 uuid 的檔案 |
+| 5 | 複製其中一張貼到別的資料夾，再刪掉原本那張，等幾秒 | Storage 裡的檔案還在（副本還在用） |
+| 6 | 把副本也刪掉，等幾秒 | Storage 裡的檔案不見了 |
+| 7 | 匯出 ZIP | 圖片在它所在的資料夾裡（例如 `課程/照片.webp`），沒有另外的 `images/` 資料夾（除非還有舊的 `![](img:…)` 筆記） |
+
 ## 同步檢查（離線 L2）
 
 `npm run test:sync` 用同樣的 A、B 測試帳號，在真正的 Supabase 上執行 App 的同步請求（`src/lib/cloud.ts`）。它不改資料表、政策或觸發器，只新增一組測試資料，結束時刪除。檢查項目與說明見 [offline.md](offline.md) 的驗證一節。

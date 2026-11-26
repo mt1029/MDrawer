@@ -1,7 +1,14 @@
 // 圖示一律用 Tabler Icons（spec 第 3 節圖示規則），統一線條粗細與尺寸。
 // 圖示只是裝飾，按鈕的說明放在按鈕的 aria-label 與 title，所以這裡一律 aria-hidden。
 
-import { IconChevronRight, IconFolder, IconFolderOpen, IconMarkdown, type Icon as TablerIcon } from '@tabler/icons-react'
+import {
+  IconChevronRight,
+  IconFolder,
+  IconFolderOpen,
+  IconMarkdown,
+  IconPhoto,
+  type Icon as TablerIcon,
+} from '@tabler/icons-react'
 import type { ButtonHTMLAttributes, Ref } from 'react'
 import { ICON_OPTICAL_SHIFT } from './iconOptics.ts'
 
@@ -33,6 +40,10 @@ export function FolderIcon({ open = false }: { open?: boolean }) {
 
 export function NoteIcon() {
   return <Icon of={IconMarkdown} size={16} />
+}
+
+export function ImageIcon() {
+  return <Icon of={IconPhoto} size={16} />
 }
 
 export function ChevronIcon({ open }: { open: boolean }) {

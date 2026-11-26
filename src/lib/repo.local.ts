@@ -21,7 +21,16 @@ import {
   type Field,
   type WriteTx,
 } from './localDb.ts'
-import { RepoError, normalizeName, sortNodes, validateName, type NodeMeta, type TreeNode } from './nodes.ts'
+import {
+  IMAGE_FILE_ID,
+  RepoError,
+  normalizeName,
+  sortNodes,
+  validateName,
+  type NodeMeta,
+  type NodeType,
+  type TreeNode,
+} from './nodes.ts'
 import type { Repo } from './repo.ts'
 import { strings } from '../strings.ts'
 
@@ -39,6 +48,14 @@ function checkName(raw: string): string {
   const problem = validateName(name)
   if (problem) throw new RepoError('invalid_name', problem)
   return name
+}
+
+/** 新項目的 content：資料夾沒有；筆記預設空白；圖片一定是圖片檔的 id */
+function initialContent(type: NodeType, content: string | undefined): string | null {
+  if (type === 'folder') return null
+  if (type === 'note') return content ?? ''
+  if (!content || !IMAGE_FILE_ID.test(content)) throw new RepoError('unknown', strings.errors.images.invalidFile)
+  return content
 }
 
 function offline(message: string): Promise<never> {
@@ -92,17 +109,20 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
     },
 
     async createNode(input) {
-      const name = checkName(input.name)
+      const checked = checkName(input.name)
+      const content = initialContent(input.type, input.content)
       return write(async (tx) => {
         const parentKey = await parentKeyOf(tx, input.parentId)
-        if (await nameTaken(tx, parentKey, name)) throw new RepoError('duplicate_name', DUPLICATE_MESSAGE)
+        let name = checked
+        if (input.rename) name = await uniqueName(tx, parentKey, checked)
+        else if (await nameTaken(tx, parentKey, name)) throw new RepoError('duplicate_name', DUPLICATE_MESSAGE)
         const time = now().toISOString()
         const node = toLocal({
           id: crypto.randomUUID(),
           parent_id: input.parentId,
           type: input.type,
           name,
-          content: input.type === 'note' ? (input.content ?? '') : null,
+          content,
           version: 0,
           created_at: time,
           updated_at: time,

@@ -127,6 +127,20 @@ describe('EditorInput', () => {
     expect(marked('active')).toBe('1')
   })
 
+  it('程式改了選取範圍（例如從搜尋結果打開時選取符合的字）也會更新', () => {
+    act(() => root.render(<Harness initial={'aa\nbb\ncc'} />))
+    act(() => textarea().focus())
+    select(0) // 第一行
+    expect(marked('current')).toBe('1')
+    // 只有原生的 select 事件，沒有 selectionchange（React 的 onSelect 不會觸發）
+    act(() => {
+      textarea().setSelectionRange(3, 5)
+      textarea().dispatchEvent(new Event('select'))
+    })
+    expect(marked('current')).toBeNull()
+    expect(marked('active')).toBe('2')
+  })
+
   it('沒有焦點時，程式改了內容也不標示', () => {
     act(() => root.render(<Harness initial={'aa'} />))
     type('aa\nbb')

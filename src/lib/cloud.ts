@@ -5,7 +5,7 @@
 // 不送 user_id、version、created_at、updated_at：前者是資料表預設值，其餘只由觸發器寫入。
 
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
-import { MAX_NAME_LENGTH, RepoError, type NodeType, type TreeNode } from './nodes.ts'
+import { IMAGE_FILE_ID, MAX_NAME_LENGTH, RepoError, type NodeType, type TreeNode } from './nodes.ts'
 import { strings } from '../strings.ts'
 
 /** 雲端的一列，包含已標記刪除的 */
@@ -33,7 +33,14 @@ export interface Cloud {
   insertIfAbsent(row: NewRow): Promise<CloudRow | null>
   /** 雲端的 version 等於 version 才更新，回傳更新後的列；不相等（被別台改過）回傳 null */
   updateIfVersion(id: string, changes: RowChanges, version: number): Promise<CloudRow | null>
+  /**
+   * 圖片項目刪除後，刪掉 Storage 裡的圖片檔；還有其他沒刪除的圖片項目（複製出來的）
+   * 或筆記（舊的 ![](img:<id>) 寫法）用到同一個檔案時保留。回傳是否刪掉了
+   */
+  removeImageIfUnused(fileId: string): Promise<boolean>
 }
+
+const IMAGE_BUCKET = 'images'
 
 const SYNC_COLUMNS = 'id, parent_id, type, name, content, version, created_at, updated_at, deleted_at'
 
@@ -120,6 +127,34 @@ export function createCloud(client: SupabaseClient, options: { pageSize?: number
         .select(SYNC_COLUMNS)
       if (error) throw toRepoError(error, status)
       return (data as CloudRow[])[0] ?? null
+    },
+
+    async removeImageIfUnused(fileId) {
+      if (!IMAGE_FILE_ID.test(fileId)) return false
+      const images = await nodes()
+        .select('id')
+        .eq('type', 'image')
+        .eq('content', fileId)
+        .is('deleted_at', null)
+        .limit(1)
+      if (images.error) throw toRepoError(images.error, images.status)
+      if (images.data.length > 0) return false
+      // fileId 已確認是 uuid，放進 like 的樣式裡不會有 % _ 等特殊字元
+      const notes = await nodes()
+        .select('id')
+        .eq('type', 'note')
+        .like('content', `%img:${fileId}%`)
+        .is('deleted_at', null)
+        .limit(1)
+      if (notes.error) throw toRepoError(notes.error, notes.status)
+      if (notes.data.length > 0) return false
+
+      const { data } = await client.auth.getSession()
+      const userId = data.session?.user.id
+      if (!userId) return false
+      const removed = await client.storage.from(IMAGE_BUCKET).remove([`${userId}/${fileId}`])
+      if (removed.error) throw new RepoError('network', strings.errors.network)
+      return removed.data.length > 0
     },
   }
 }

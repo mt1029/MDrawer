@@ -721,6 +721,31 @@ button.link {
   color: var(--muted);
 }
 
+/* 選了圖片時的預覽：填滿右側但不放大超過原尺寸，下面是寬 × 高 */
+.image-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 0;
+  margin: 0;
+}
+
+.image-viewer img {
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: var(--fill);
+}
+
+.image-viewer figcaption {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 筆記編輯器：只有編輯區、只有預覽、並排（大螢幕左右、窄螢幕上下） ─── */
 
 .editor {
@@ -1062,6 +1087,171 @@ button.link {
 .markdown mark {
   background: var(--mark);
   color: inherit;
+}
+
+/* ── 搜尋面板 ──────────────────────────────────────────── */
+
+.search-box {
+  padding: 0 0.5rem 0.5rem;
+}
+
+/* 側欄是填色底，搜尋框用白底（深色模式為黑底）才看得出來；聚焦時跟其他輸入框一樣藍框加光暈 */
+.search-box input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--hairline);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text);
+  caret-color: var(--accent);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.search-summary {
+  margin: 0 0.4rem 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.search-summary:empty {
+  display: none;
+}
+
+.search-hint {
+  margin: 0.25rem 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.search-results,
+.search-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 結果的每一列：跟資料夾樹的列一樣是透明底的按鈕，游標移過去變灰 */
+.search-note,
+.search-line {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  background: none;
+  color: var(--text);
+  font-weight: 300;
+  text-align: left;
+}
+
+.search-note {
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.4rem;
+}
+
+.search-note svg {
+  flex: none;
+  color: var(--muted);
+}
+
+/* 路徑在前、名稱在後（/課程/第一週/筆記）；放不下時程式先縮短路徑，最後才截斷名稱 */
+.search-label {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.search-path {
+  flex: none;
+  color: var(--muted);
+}
+
+.search-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 內容裡符合的處數 */
+.search-count {
+  flex: none;
+  padding: 0 0.35rem;
+  background: var(--fill-2);
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 符合的行：縮排到筆記名稱下面，左邊是行號 */
+.search-line {
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.15rem 0.4rem 0.15rem 1.65rem;
+  font-size: 0.8125rem;
+}
+
+/* 留三位數的寬度，1～999 行的文字對齊 */
+.search-line-number {
+  flex: none;
+  min-width: 3ch;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.search-line-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-results mark {
+  background: var(--mark);
+  color: inherit;
+}
+
+.search-more {
+  margin: 0 0 0.25rem;
+  padding-left: calc(1.65rem + 0.4rem);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+:is(.search-note, .search-line):focus-visible {
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .search-results :is(.search-note, .search-line):not(:disabled):hover {
+    background: var(--fill-2);
+  }
+}
+
+/* 觸控裝置：每一列加高，比較好點 */
+@media (pointer: coarse) {
+  .search-note {
+    padding-block: 0.55rem;
+  }
+
+  .search-line {
+    padding-block: 0.6rem;
+  }
 }
 
 /* ── 資料夾樹（主畫面與移動對話框共用） ─────────────────── */

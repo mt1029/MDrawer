@@ -2,7 +2,7 @@ import type { CSSProperties, DragEvent, HTMLAttributes, KeyboardEvent } from 're
 import { formatTime } from '../lib/format.ts'
 import type { NodeMeta } from '../lib/repo.ts'
 import { strings } from '../strings.ts'
-import { ChevronIcon, FolderIcon, NoteIcon } from './icons.tsx'
+import { ChevronIcon, FolderIcon, ImageIcon, NoteIcon } from './icons.tsx'
 
 interface Props {
   /** 某個資料夾已載入的子項目；undefined 代表還沒載入。parentId 為 null 代表根目錄 */
@@ -118,7 +118,7 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
                   if (!event.defaultPrevented) props.onItemKeyDown?.(node, event)
                 }}
               >
-                {isFolder ? <FolderIcon open={isOpen} /> : <NoteIcon />}
+                {isFolder ? <FolderIcon open={isOpen} /> : node.type === 'image' ? <ImageIcon /> : <NoteIcon />}
                 <span className="tree-name">{node.name}</span>
               </button>
             </div>

@@ -1,10 +1,13 @@
-// ZIP 匯出的「規劃」部分：決定每個資料夾、筆記、圖片在 ZIP 裡的路徑，並把筆記裡的
+// ZIP 匯出的「規劃」部分：決定每個資料夾、筆記、圖片在 ZIP 裡的路徑，並把筆記裡舊的
 // img:<id> 改成相對路徑。不讀寫資料，方便單元測試；讀資料與下載在 export.ts。
+//
+// 資料夾裡的圖片（type 為 image）跟筆記一樣放在它所在的資料夾，筆記裡的相對路徑不用改。
+// 舊的 ![](img:<id>) 引用的圖片放在 ZIP 根目錄的 images/，連結改成相對路徑。
 
-import { rewriteImageRefs } from './markdown.ts'
+import { extractImageIds, rewriteImageRefs } from './markdown.ts'
 import type { TreeNode } from './nodes.ts'
 
-/** 圖片放在 ZIP 根目錄的這個資料夾 */
+/** 舊的 img:<id> 引用的圖片放在 ZIP 根目錄的這個資料夾 */
 export const IMAGES_DIR = 'images'
 
 const EXTENSIONS: Record<string, string> = { 'image/webp': 'webp', 'image/jpeg': 'jpg' }
@@ -55,9 +58,26 @@ export interface ExportNote {
   date: Date
 }
 
+export interface ExportImage {
+  path: string
+  /** 圖片檔的 id（Storage） */
+  fileId: string
+  date: Date
+}
+
 export interface ExportPlan {
   folders: ExportFolder[]
   notes: ExportNote[]
+  /** 資料夾裡的圖片 */
+  images: ExportImage[]
+  /** 筆記裡舊的 img:<id> 引用到的圖片檔 id，放在根目錄的 images/ */
+  legacyImages: string[]
+}
+
+/** 名稱拆成主檔名與圖片副檔名（沒有認得的副檔名時，副檔名是空字串） */
+function splitImageName(name: string): [base: string, extension: string] {
+  const match = /\.(webp|jpe?g)$/i.exec(name)
+  return match ? [name.slice(0, match.index), match[0]] : [name, '']
 }
 
 const collator = new Intl.Collator('zh-Hant', { numeric: true, sensitivity: 'base' })
@@ -72,7 +92,10 @@ function compareNodes(a: TreeNode, b: TreeNode): number {
  * @param extensionOf 圖片 id → 副檔名（webp 或 jpg），用來組成圖片的相對路徑
  */
 export function planExport(nodes: TreeNode[], extensionOf: (imageId: string) => string): ExportPlan {
-  const plan: ExportPlan = { folders: [], notes: [] }
+  const legacyImages = [
+    ...new Set(nodes.flatMap((node) => (node.type === 'note' ? extractImageIds(node.content ?? '') : []))),
+  ]
+  const plan: ExportPlan = { folders: [], notes: [], images: [], legacyImages }
   const ids = new Set(nodes.map((node) => node.id))
   const childrenOf = new Map<string | null, TreeNode[]>()
   for (const node of nodes) {
@@ -99,6 +122,15 @@ export function planExport(nodes: TreeNode[], extensionOf: (imageId: string) => 
       return
     }
 
+    if (node.type === 'image') {
+      // 名稱已經有副檔名（.webp、.jpg）就照用，沒有的話依圖片檔的格式加上
+      const fileId = node.content ?? ''
+      const [base, extension] = splitImageName(node.name)
+      const file = names.claim(toSafeFileName(base), extension || `.${extensionOf(fileId)}`)
+      plan.images.push({ path: [...dir, file].join('/'), fileId, date })
+      return
+    }
+
     // 名稱已經以 .md 結尾時不再重複加
     const file = names.claim(toSafeFileName(node.name.replace(/\.md$/i, '')), '.md')
     // 圖片都在根目錄的 images/，從筆記所在的資料夾往上回到根目錄
@@ -108,7 +140,9 @@ export function planExport(nodes: TreeNode[], extensionOf: (imageId: string) => 
   }
 
   const rootNames = new NameRegistry()
-  rootNames.claim(IMAGES_DIR) // 保留給圖片資料夾，使用者的「images」資料夾會變成「images (2)」
+  // 有舊的 img:<id> 時保留給它們的圖片資料夾，使用者的「images」資料夾會變成「images (2)」。
+  // 沒有時不保留：使用者自己的 images 資料夾（裡面的圖片被筆記用相對路徑引用）要維持原名
+  if (legacyImages.length > 0) rootNames.claim(IMAGES_DIR)
   for (const node of childrenOf.get(null) ?? []) place(node, [], rootNames)
   // 兩台裝置同時移動可能造成循環，循環裡的項目從最上層走不到，也放到最上層，避免漏掉
   for (const node of [...nodes].sort(compareNodes)) {
@@ -117,7 +151,7 @@ export function planExport(nodes: TreeNode[], extensionOf: (imageId: string) => 
   return plan
 }
 
-/** 依規劃把筆記、資料夾與圖片打包成 ZIP */
+/** 依規劃把筆記、資料夾與圖片打包成 ZIP。images 是圖片檔 id → 下載的檔案，沒有的（找不到）略過 */
 export async function buildZip(plan: ExportPlan, images: Map<string, Blob>): Promise<Blob> {
   // JSZip 只有匯出時才用到，需要時才載入，不放進主程式
   const { default: JSZip } = await import('jszip')
@@ -128,9 +162,14 @@ export async function buildZip(plan: ExportPlan, images: Map<string, Blob>): Pro
   for (const note of plan.notes) {
     zip.file(note.path, note.content, { date: note.date })
   }
-  for (const [id, blob] of images) {
-    // 圖片已經壓縮過，不必再壓
-    zip.file(`${IMAGES_DIR}/${id}.${imageExtension(blob.type)}`, blob, { compression: 'STORE' })
+  // 圖片已經壓縮過，不必再壓
+  for (const image of plan.images) {
+    const blob = images.get(image.fileId)
+    if (blob) zip.file(image.path, blob, { date: image.date, compression: 'STORE' })
+  }
+  for (const id of plan.legacyImages) {
+    const blob = images.get(id)
+    if (blob) zip.file(`${IMAGES_DIR}/${id}.${imageExtension(blob.type)}`, blob, { compression: 'STORE' })
   }
   return zip.generateAsync({ type: 'blob', mimeType: 'application/zip', compression: 'DEFLATE' })
 }

@@ -2,7 +2,14 @@
 
 import { strings } from '../strings.ts'
 
-export type NodeType = 'folder' | 'note'
+/** 資料夾、筆記、圖片（圖片的 content 是 Storage 裡圖片檔的 uuid） */
+export type NodeType = 'folder' | 'note' | 'image'
+
+/** 圖片檔的 uuid（Storage 的路徑是「使用者 id/uuid」），與資料庫的 nodes_image_file 限制相同 */
+export const IMAGE_FILE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** 圖片的副檔名（numberedName 撞名時把編號放在副檔名前面） */
+const IMAGE_EXTENSION = /\.(webp|jpe?g|png|gif|avif)$/i
 
 /** 樹狀清單需要的欄位（不含筆記內容） */
 export interface NodeMeta {
@@ -43,6 +50,32 @@ export class RepoError extends Error {
 
 const collator = new Intl.Collator('zh-Hant', { numeric: true, sensitivity: 'base' })
 
+/** 比較兩個名稱（數字依大小，不分大小寫），跟資料夾樹的排序一樣 */
+export const compareNames = (a: string, b: string): number => collator.compare(a, b)
+
+/**
+ * 所在的資料夾路徑，例如「/課程/第一週/」，最上層為「/」。只到資料夾，結尾的 / 表示這是資料夾。
+ * find 用 id 找資料夾；找不到（還沒載入、剛被別台裝置移走）或出現循環時，那一段以前用「…」代替
+ */
+export function folderPath(
+  parentId: string | null,
+  find: (id: string) => Pick<NodeMeta, 'name' | 'parent_id'> | undefined,
+): string {
+  const names: string[] = []
+  const seen = new Set<string>()
+  for (let id = parentId; id; ) {
+    const parent = find(id)
+    if (!parent || seen.has(id)) {
+      names.unshift('…')
+      break
+    }
+    seen.add(id)
+    names.unshift(parent.name)
+    id = parent.parent_id
+  }
+  return names.length > 0 ? `/${names.join('/')}/` : '/'
+}
+
 /** 資料夾在前、再依名稱排序（數字依大小，不分大小寫）。直接排序傳入的陣列 */
 export function sortNodes<T extends NodeMeta>(nodes: T[]): T[] {
   return nodes.sort((a, b) => {
@@ -74,10 +107,24 @@ function truncate(name: string, max: number): string {
   return chars.length <= max ? name : chars.slice(0, max).join('').trimEnd()
 }
 
-/** 撞名時的新名稱：「名稱 (2)」。超過長度上限時截短原名 */
+/**
+ * 撞名時的新名稱：「名稱 (2)」；圖片的編號放在副檔名前面（「照片 (2).webp」），副檔名才不會跑掉。
+ * 超過長度上限時截短原名
+ */
 export function numberedName(name: string, n: number): string {
-  const suffix = ` (${n})`
-  return truncate(name, MAX_NAME_LENGTH - suffix.length) + suffix
+  const extension = IMAGE_EXTENSION.exec(name)?.[0] ?? ''
+  const suffix = ` (${n})${extension}`
+  return truncate(name.slice(0, name.length - extension.length), MAX_NAME_LENGTH - [...suffix].length) + suffix
+}
+
+/** 上傳的圖片的名稱：原本的檔名換成壓縮後的副檔名（例如 IMG_0001.HEIC → IMG_0001.jpg），不符合名稱規則的字換掉 */
+export function imageFileName(originalName: string, format: 'image/webp' | 'image/jpeg'): string {
+  const base = normalizeName(originalName.replace(/\.[^.]*$/, ''))
+    .replace(/[/\\]/g, '_')
+    .replace(/\.{2,}/g, '.')
+    .replace(/\.$/, '')
+  const extension = format === 'image/jpeg' ? '.jpg' : '.webp'
+  return truncate(base || 'image', MAX_NAME_LENGTH - extension.length) + extension
 }
 
 /** 衝突副本的名稱：「名稱（衝突副本 2026-11-25 14:30）」（spec 第 6 節） */
