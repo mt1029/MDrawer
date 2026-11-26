@@ -1,5 +1,14 @@
 import { IconEye, IconLayoutColumns, IconLayoutRows, IconPencil, IconPhotoPlus } from '@tabler/icons-react'
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type ReactNode,
+} from 'react'
 import { ImageError, compressImage, formatBytes, type ImageFormat } from '../lib/image.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
 import { RepoError, mirror, repo, type NodeMeta } from '../lib/repo.ts'
@@ -7,6 +16,7 @@ import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
 import { useImageUrls } from '../lib/useImageUrls.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import ContextMenu, { type MenuRequest } from './ContextMenu.tsx'
+import EditorInput from './EditorInput.tsx'
 import { Icon, IconButton } from './icons.tsx'
 
 // 停止輸入多久後自動儲存
@@ -51,13 +61,16 @@ interface Props {
   cloud: boolean
   /** 儲存後回傳最新的資料 */
   onSaved: (node: NodeMeta) => void
+  /** 畫出標題區；傳進去的內容（儲存狀態、圖示）放在名稱的同一行 */
+  renderHeader: (inline?: ReactNode) => ReactNode
 }
 
 /**
  * 筆記編輯器（spec 第 3 節介面改版第 3 步）：預設只有編輯區，右上角的眼睛切換成預覽；
- * 在眼睛上按右鍵或長按可以改成並排。停止輸入一秒後自動儲存到這台裝置，再在背景同步
+ * 在眼睛上按右鍵或長按可以改成並排。停止輸入一秒後自動儲存到這台裝置，再在背景同步。
+ * 儲存狀態與圖示放在標題同一行，不另外佔一行
  */
-export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
+export default function NoteEditor({ noteId, cloud, onSaved, renderHeader }: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -287,91 +300,111 @@ export default function NoteEditor({ noteId, cloud, onSaved }: Props) {
   )
   const eyeLabel = view === 'edit' ? '預覽 Markdown' : '回到編輯'
 
-  if (loadError) return <p className="message error">{loadError}</p>
-  if (content === null) return <p className="detail-placeholder">載入中…</p>
+  if (loadError) {
+    return (
+      <>
+        {renderHeader()}
+        <p className="message error">{loadError}</p>
+      </>
+    )
+  }
+  if (content === null) {
+    return (
+      <>
+        {renderHeader()}
+        <p className="detail-placeholder">載入中…</p>
+      </>
+    )
+  }
+
+  // 放在標題同一行：名稱後面是儲存狀態，最右邊是插入圖片、預覽。名稱太長時這些換到下一行
+  const inline = (
+    <>
+      <span className={`save-state ${saveState}`} role="status">
+        {SAVE_LABEL[saveState]}
+      </span>
+      {saveState === 'error' && (
+        <button type="button" className="link-button" onClick={() => void save()}>
+          重試
+        </button>
+      )}
+      <div className="editor-actions">
+        <IconButton
+          icon={IconPhotoPlus}
+          label={cloud ? '插入圖片' : '離線時無法插入圖片'}
+          disabled={!cloud}
+          onClick={() => fileInput.current?.click()}
+        />
+        <IconButton
+          icon={IconEye}
+          label={eyeLabel}
+          title={`${eyeLabel}（${canHover ? '按右鍵' : '長按'}可以改成並排）`}
+          pressed={showPreview}
+          {...menuTrigger(null)}
+          onClick={() => changeView(view === 'edit' ? 'preview' : 'edit')}
+        />
+      </div>
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? [])
+          e.target.value = ''
+          void insertImages(files)
+        }}
+      />
+    </>
+  )
 
   return (
-    <div className="editor" data-view={view}>
-      <div className="editor-bar">
-        <span className={`save-state ${saveState}`} role="status">
-          {SAVE_LABEL[saveState]}
-        </span>
-        {saveState === 'error' && (
-          <button type="button" className="link-button" onClick={() => void save()}>
-            重試
-          </button>
+    <>
+      {renderHeader(inline)}
+      <div className="editor" data-view={view}>
+        {saveError && saveState === 'error' && (
+          <p className="message error" role="alert">
+            {saveError}
+          </p>
         )}
-        <div className="editor-actions">
-          <IconButton
-            icon={IconPhotoPlus}
-            label={cloud ? '插入圖片' : '離線時無法插入圖片'}
-            disabled={!cloud}
-            onClick={() => fileInput.current?.click()}
-          />
-          <IconButton
-            icon={IconEye}
-            label={eyeLabel}
-            title={`${eyeLabel}（${canHover ? '按右鍵' : '長按'}可以改成並排）`}
-            pressed={showPreview}
-            {...menuTrigger(null)}
-            onClick={() => changeView(view === 'edit' ? 'preview' : 'edit')}
-          />
-        </div>
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? [])
-            e.target.value = ''
-            void insertImages(files)
-          }}
-        />
-      </div>
-      {saveError && saveState === 'error' && (
-        <p className="message error" role="alert">
-          {saveError}
-        </p>
-      )}
-      {notice && (
-        <p className="message warning" role="status">
-          {notice}{' '}
-          <button type="button" className="link-button" onClick={() => setNotice(null)}>
-            知道了
-          </button>
-        </p>
-      )}
-      {imageStatus && (
-        <p className={`image-status ${imageStatus.kind}`} role="status">
-          {imageStatus.text}
-        </p>
-      )}
+        {notice && (
+          <p className="message warning" role="status">
+            {notice}{' '}
+            <button type="button" className="link-button" onClick={() => setNotice(null)}>
+              知道了
+            </button>
+          </p>
+        )}
+        {imageStatus && (
+          <p className={`image-status ${imageStatus.kind}`} role="status">
+            {imageStatus.text}
+          </p>
+        )}
 
-      <div className="editor-panes">
-        <textarea
-          ref={textarea}
-          className="editor-input"
-          aria-label="Markdown 內容"
-          value={content}
-          onChange={(e) => handleChange(e.target.value)}
-          onBlur={() => void save()}
-          onPaste={handlePaste}
-          onKeyDown={(e) => {
-            // Ctrl+S / Cmd+S 立即儲存，不跳出瀏覽器的另存新檔
-            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-              e.preventDefault()
-              void save()
-            }
-          }}
-          placeholder={'# 標題\n\n開始寫 Markdown…'}
-          spellCheck={false}
-        />
-        {/* previewHtml 已經過 markdown-it（html: false）與 DOMPurify 過濾，見 src/lib/markdown.ts */}
-        <article className="markdown" aria-label="預覽" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        <div className="editor-panes">
+          <EditorInput
+            ref={textarea}
+            aria-label="Markdown 內容"
+            value={content}
+            onChange={(e) => handleChange(e.target.value)}
+            onBlur={() => void save()}
+            onPaste={handlePaste}
+            onKeyDown={(e) => {
+              // Ctrl+S / Cmd+S 立即儲存，不跳出瀏覽器的另存新檔
+              if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault()
+                void save()
+              }
+            }}
+            placeholder={'# 標題\n\n開始寫 Markdown…'}
+            spellCheck={false}
+          />
+          {/* previewHtml 已經過 markdown-it（html: false）與 DOMPurify 過濾，見 src/lib/markdown.ts */}
+          <article className="markdown" aria-label="預覽" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+        </div>
+        {menu && <ContextMenu request={menu} onClose={() => setMenu(null)} />}
       </div>
-      {menu && <ContextMenu request={menu} onClose={() => setMenu(null)} />}
-    </div>
+    </>
   )
 }

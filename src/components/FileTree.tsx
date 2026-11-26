@@ -1,4 +1,5 @@
 import type { CSSProperties, DragEvent, HTMLAttributes, KeyboardEvent } from 'react'
+import { formatTime } from '../lib/format.ts'
 import type { NodeMeta } from '../lib/repo.ts'
 import { ChevronIcon, FolderIcon, NoteIcon } from './icons.tsx'
 
@@ -107,6 +108,8 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
                 className="tree-item"
                 aria-current={isSelected ? 'true' : undefined}
                 aria-expanded={isFolder ? isOpen : undefined}
+                // 最後修改的時間只在游標停留時顯示，不佔畫面（觸控螢幕沒有游標停留，看不到）
+                title={`最後修改：${formatTime(node.updated_at)}`}
                 {...trigger}
                 onClick={() => props.onSelect(node)}
                 onKeyDown={(event) => {

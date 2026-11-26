@@ -96,6 +96,19 @@ body {
   background: var(--bg);
 }
 
+/* 畫面上看不到、螢幕閱讀器會念的文字（例如路徑前面的「位置：」） */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -353,26 +366,16 @@ button.link {
   letter-spacing: -0.01em;
 }
 
-/* 帳號頭像：email 的第一個字，點開是帳號選單 */
-.avatar {
+/* 主選單（三條橫線）：點開是登入的 email、匯出、登出。高度配合上方列，不把上方列撐高 */
+.topbar .menu-button {
   flex: none;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--button-bg);
-  color: #ffffff;
-  font-size: 0.95rem;
-  font-weight: 500;
-  line-height: 1;
+  width: 2.125rem;
+  height: 2.125rem;
+  color: var(--text);
 }
 
-.avatar[aria-expanded='true'] {
-  box-shadow:
-    0 0 0 2px var(--bg),
-    0 0 0 4px var(--accent);
+.topbar .menu-button[aria-expanded='true'] {
+  background: var(--fill-2);
 }
 
 .offline-banner {
@@ -638,7 +641,7 @@ button.link {
   font-size: 0.75rem;
 }
 
-/* email 不換行（在 - 或 @ 斷開很難讀），太長的用「…」截斷，完整的在頭像的 title */
+/* email 不換行（在 - 或 @ 斷開很難讀），太長的用「…」截斷，游標停在上面時顯示完整的 */
 .menu-header-email {
   overflow: hidden;
   font-size: 0.9rem;
@@ -667,37 +670,51 @@ button.link {
   padding: 1.5rem 2rem;
 }
 
-/* 筆記或資料夾的標題區；小螢幕左邊多一個返回鍵 */
+/*
+ * 筆記或資料夾的標題區：第一列是所在的資料夾路徑，第二列是名稱。
+ * 小螢幕左邊多一個返回鍵，放在第二列，對齊名稱（不是對齊路徑加名稱的正中間）
+ */
 .detail-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.25rem;
+  --title-size: 2rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
-.detail-heading {
-  flex: 1;
-  min-width: 0;
-}
-
-.detail-type {
+/* 所在的資料夾路徑，例如「/課程/第一週/」。很長時可以在任何地方換行 */
+.detail-path {
+  grid-column: 2;
+  grid-row: 1;
   margin: 0;
   font-size: 0.8125rem;
   color: var(--muted);
-  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * 名稱那一行。筆記的話名稱後面接儲存狀態（文字的底線對齊名稱），最右邊是插入圖片、預覽（垂直置中），
+ * 不另外佔一行，編輯區多一點空間。名稱太長時儲存狀態與圖示換到下一行
+ */
+.detail-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.75rem;
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0.15rem 0 1.25rem;
 }
 
 .detail-title {
-  margin: 0.15rem 0 0.25rem;
-  font-size: 2rem;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--title-size);
   font-weight: 200;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
 }
 
-.detail-meta {
-  margin: 0 0 1.25rem;
+.detail-title-row .link-button {
   font-size: 0.8125rem;
-  color: var(--muted);
 }
 
 .detail-placeholder {
@@ -714,19 +731,9 @@ button.link {
   min-height: 0;
 }
 
-.editor-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 2rem;
-}
-
-.editor-bar .link-button {
-  font-size: 0.8125rem;
-}
-
 /* 右上角的圖示：插入圖片、預覽 */
 .editor-actions {
+  align-self: center;
   display: flex;
   gap: 0.125rem;
   margin-left: auto;
@@ -737,8 +744,16 @@ button.link {
   height: 2rem;
 }
 
+/*
+ * 最少佔最寬的「尚未儲存」的寬度：狀態改變時文字長短不同，不會讓同一行的版面跳動。
+ * 行高跟圖示一樣高：名稱太長、換到下一行時，文字跟圖示垂直置中。
+ * 下方的負邊界抵掉加高的部分，跟名稱同一行時不會把那一行撐高（標題下方的間距、載入前後都一樣）
+ */
 .save-state {
+  min-width: 4em;
+  margin-bottom: -0.5rem;
   font-size: 0.8125rem;
+  line-height: 2rem;
   color: var(--muted);
 }
 
@@ -774,32 +789,114 @@ button.link {
 
 /* 不顯示的那一邊只是藏起來，編輯框的內容、游標位置都還在 */
 .editor[data-view='edit'] .markdown,
-.editor[data-view='preview'] .editor-input {
+.editor[data-view='preview'] .code-editor {
   display: none;
 }
 
-.editor-input {
-  width: 100%;
-  height: 100%;
+/*
+ * 編輯框（EditorInput）：textarea 疊在「每一行」那一層上面，兩者在同一格、同一個捲動框裡。
+ * 那一層每一行左邊是行號，右邊是跟 textarea 一樣的文字（透明），所以自動換行後的高度一樣、行號對得上。
+ * 兩邊的字型、字距、換行規則、左右留白必須完全相同，改這裡時兩邊一起改
+ */
+.code-editor {
+  /* 行號欄的寬度：位數 × 一個字寬，加上左右的留白（位數由程式依行數設定） */
+  --gutter: calc(var(--digits, 2) * 1ch + 1.75rem);
+  display: grid;
   min-height: 20rem;
-  padding: 1rem;
-  resize: none;
+  overflow-y: auto;
+  /* 打字打到最下面時，捲動後游標那一行下面留一點空間，不會貼著邊框 */
+  scroll-padding-block: 1rem;
   border: 1px solid transparent;
-  border-radius: 0;
   background: var(--fill);
-  color: var(--text);
-  caret-color: var(--accent);
   font: 400 0.95rem/1.65 var(--mono);
+  letter-spacing: normal;
+  word-spacing: normal;
   tab-size: 4;
   transition:
     border-color 0.2s ease,
     background-color 0.2s ease;
 }
 
-.editor-input:focus {
-  outline: none;
+.code-editor:focus-within {
   border-color: var(--accent);
   background: var(--bg);
+}
+
+.code-lines,
+.code-input {
+  grid-area: 1 / 1;
+}
+
+.code-lines {
+  padding: 1rem 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.code-line {
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+}
+
+/*
+ * 游標所在的那一行（編輯框有焦點、沒有選取文字時）：整行換成灰色，深色模式是亮一點的灰。
+ * 有焦點時編輯框是白底（深色為黑底），用 --fill 太淡看不出來，所以用 --fill-2
+ */
+.code-line.current {
+  background: var(--fill-2);
+}
+
+.code-number {
+  padding: 0 0.75rem 0 1rem;
+  text-align: right;
+  color: var(--muted);
+}
+
+/* 游標所在行的行號（有選取文字時也是）變成內文的顏色 */
+.code-line:is(.current, .active) .code-number {
+  color: var(--text);
+}
+
+.code-text,
+.code-input {
+  padding-right: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.code-text {
+  color: transparent;
+}
+
+.code-text::before {
+  content: attr(data-text);
+}
+
+.code-input {
+  width: auto;
+  min-height: 0;
+  margin-left: var(--gutter);
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  padding-left: 0;
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  caret-color: var(--accent);
+  font: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  tab-size: inherit;
+}
+
+/* 焦點由外框（.code-editor:focus-within）表示 */
+.code-input:focus,
+.code-input:focus-visible {
+  outline: none;
 }
 
 /* ── Markdown 預覽 ─────────────────────────────────────── */
@@ -1216,21 +1313,39 @@ button.link {
     padding-bottom: 1rem;
   }
 
+  /* 上方列到路徑、名稱到編輯區的間距一樣（看起來都約 19px） */
   .detail {
     flex: 1;
     overflow-y: visible;
-    padding: 0.5rem 1rem 1rem;
+    padding: 0.875rem 1rem 1rem;
   }
 
+  .detail-header {
+    --title-size: 1.6rem;
+  }
+
+  .detail-title-row {
+    margin-bottom: 0.75rem;
+  }
+
+  /*
+   * 返回鍵：高度剛好是名稱一行的高度（字級 × 行高 1.2），圖示就跟名稱垂直置中；
+   * 上方的間距跟名稱那一列一樣。按得到的範圍用 ::after 往上下延伸到約 40px
+   */
   .back-button {
-    flex: none;
+    position: relative;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: start;
     width: 2.5rem;
-    height: 2.5rem;
-    margin: 0.4rem 0 0 -0.5rem;
+    height: calc(var(--title-size) * 1.2);
+    margin: 0.15rem 0.25rem 0 -0.5rem;
   }
 
-  .detail-title {
-    font-size: 1.6rem;
+  .back-button::after {
+    content: '';
+    position: absolute;
+    inset: -0.3rem 0;
   }
 
   /* 上下並排：各佔畫面的四成，內容多的話在框裡捲動，不會把頁面拉得很長 */
@@ -1239,12 +1354,17 @@ button.link {
     grid-template-rows: 40dvh 40dvh;
   }
 
-  .editor-input,
   .markdown {
     min-height: 60vh;
   }
 
-  .editor[data-view='split'] :is(.editor-input, .markdown) {
+  /* 編輯框維持原本的做法：固定佔畫面的六成，內容多的話在框裡捲動 */
+  .code-editor {
+    height: 60vh;
+    min-height: 0;
+  }
+
+  .editor[data-view='split'] :is(.code-editor, .markdown) {
     min-height: 0;
     height: 100%;
   }

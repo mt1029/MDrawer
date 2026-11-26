@@ -12,7 +12,7 @@ import {
   IconRefresh,
   IconTrash,
 } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { formatTime } from '../lib/format.ts'
 import { RepoError, mirror, repo, sortNodes, type NodeMeta, type NodeType } from '../lib/repo.ts'
 import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
@@ -151,6 +151,26 @@ export default function Workspace({ cloud }: Props) {
   const parentFor = (node: NodeMeta | null) => (node ? (node.type === 'folder' ? node.id : node.parent_id) : null)
   const placeName = (parentId: string | null) => (parentId ? `「${nodesById.get(parentId)?.name ?? '…'}」` : '最上層')
   const targetParentId = parentFor(selected)
+
+  /**
+   * 所在的資料夾路徑，例如「/課程/第一週/」，最上層為「/」。只顯示資料夾，名稱在下面的標題；結尾的 / 表示這是資料夾。
+   * 看得到的項目，上層都已經載入；萬一沒有（例如剛被別台裝置移走），那一段以前用「…」代替
+   */
+  function folderPath(node: NodeMeta): string {
+    const names: string[] = []
+    const seen = new Set<string>()
+    for (let id = node.parent_id; id; ) {
+      const parent = nodesById.get(id)
+      if (!parent || seen.has(id)) {
+        names.unshift('…')
+        break
+      }
+      seen.add(id)
+      names.unshift(parent.name)
+      id = parent.parent_id
+    }
+    return names.length > 0 ? `/${names.join('/')}/` : '/'
+  }
 
   function expand(folderId: string) {
     setExpanded((prev) => new Set(prev).add(folderId))
@@ -475,6 +495,33 @@ export default function Workspace({ cloud }: Props) {
   // 小螢幕目前的畫面：只有選了筆記、而且點進去之後才是編輯器
   const screen = narrow && inDetail && selected?.type === 'note' ? 'detail' : 'list'
 
+  /**
+   * 標題區：所在的資料夾路徑、名稱。筆記的話由 NoteEditor 呼叫，把儲存狀態與編輯器的圖示放在名稱同一行，
+   * 編輯區、預覽可以多一點空間
+   */
+  const renderHeader = (node: NodeMeta) => (inline?: ReactNode) => (
+    <header className="detail-header">
+      {narrow && (
+        <IconButton
+          ref={backButton}
+          icon={IconChevronLeft}
+          label="返回檔案總管"
+          className="icon-button back-button"
+          size={22}
+          onClick={backToList}
+        />
+      )}
+      <p className="detail-path">
+        <span className="visually-hidden">位置：</span>
+        {folderPath(node)}
+      </p>
+      <div className="detail-title-row">
+        <h2 className="detail-title">{node.name}</h2>
+        {inline}
+      </div>
+    </header>
+  )
+
   return (
     <div className={sidebarOpen ? 'workspace' : 'workspace sidebar-hidden'} data-screen={screen}>
       <nav className="activity-bar" aria-label="面板">
@@ -560,33 +607,21 @@ export default function Workspace({ cloud }: Props) {
       </aside>
 
       <main className="detail">
-        {selected ? (
+        {selected?.type === 'note' ? (
+          <NoteEditor
+            key={selected.id}
+            noteId={selected.id}
+            cloud={cloud}
+            onSaved={replaceNode}
+            renderHeader={renderHeader(selected)}
+          />
+        ) : selected ? (
           <>
-            <header className="detail-header">
-              {narrow && (
-                <IconButton
-                  ref={backButton}
-                  icon={IconChevronLeft}
-                  label="返回檔案總管"
-                  className="icon-button back-button"
-                  size={22}
-                  onClick={backToList}
-                />
-              )}
-              <div className="detail-heading">
-                <p className="detail-type">{TYPE_LABEL[selected.type]}</p>
-                <h2 className="detail-title">{selected.name}</h2>
-                <p className="detail-meta">最後修改：{formatTime(selected.updated_at)}</p>
-              </div>
-            </header>
-            {selected.type === 'note' ? (
-              <NoteEditor key={selected.id} noteId={selected.id} cloud={cloud} onSaved={replaceNode} />
-            ) : (
-              <p className="detail-placeholder">
-                {childrenOf[selected.id] ? `裡面有 ${childrenOf[selected.id].length} 個項目。` : ''}
-                用側欄上方的圖示或右鍵選單，可以在這個資料夾裡新增筆記或資料夾，或把剪下、複製的項目貼上到這裡。
-              </p>
-            )}
+            {renderHeader(selected)()}
+            <p className="detail-placeholder">
+              {childrenOf[selected.id] ? `裡面有 ${childrenOf[selected.id].length} 個項目。` : ''}
+              用側欄上方的圖示或右鍵選單，可以在這個資料夾裡新增筆記或資料夾，或把剪下、複製的項目貼上到這裡。
+            </p>
           </>
         ) : (
           <p className="detail-placeholder">

@@ -1,7 +1,7 @@
-import { IconFileZip, IconLogout } from '@tabler/icons-react'
+import { IconFileZip, IconLogout, IconMenu2 } from '@tabler/icons-react'
 import { useRef, useState, type KeyboardEvent } from 'react'
 import ContextMenu, { type MenuRequest } from './ContextMenu.tsx'
-import { Icon } from './icons.tsx'
+import { Icon, IconButton } from './icons.tsx'
 
 interface Props {
   email: string
@@ -13,14 +13,13 @@ interface Props {
 }
 
 /**
- * 帳號（spec 第 3 節介面改版第 5 步）：上方列只有一個圓形頭像（email 的第一個字），
- * 點開才看到 email、匯出、登出。之後的設定也放在這裡。
- * 鍵盤：Enter、空白鍵或下鍵打開，選單裡用上下鍵移動，Esc 關閉後焦點回到頭像
+ * 主選單（spec 第 3 節介面改版第 5 步）：上方列右邊只有一個選單圖示（三條橫線），
+ * 點開才看到登入的 email、匯出、登出。之後的設定也放在這裡。
+ * 鍵盤：Enter、空白鍵或下鍵打開，選單裡用上下鍵移動，Esc 關閉後焦點回到選單圖示
  */
 export default function AccountMenu({ email, canExport, onExport, onSignOut, signingOut }: Props) {
   const button = useRef<HTMLButtonElement>(null)
   const [menu, setMenu] = useState<MenuRequest | null>(null)
-  const initial = email.trim().charAt(0).toUpperCase() || '?'
 
   function open() {
     const rect = button.current?.getBoundingClientRect()
@@ -30,11 +29,13 @@ export default function AccountMenu({ email, canExport, onExport, onSignOut, sig
       y: rect.bottom + 6,
       align: 'end',
       anchor: button.current,
-      label: '帳號',
+      label: '選單',
       header: (
         <>
           <span className="menu-header-label">登入帳號</span>
-          <span className="menu-header-email">{email}</span>
+          <span className="menu-header-email" title={email}>
+            {email}
+          </span>
         </>
       ),
       items: [
@@ -60,19 +61,17 @@ export default function AccountMenu({ email, canExport, onExport, onSignOut, sig
 
   return (
     <>
-      <button
+      <IconButton
         ref={button}
-        type="button"
-        className="avatar"
-        aria-label={`帳號選單（${email}）`}
-        title={email}
+        icon={IconMenu2}
+        label="選單"
+        className="icon-button menu-button"
+        size={22}
         aria-haspopup="menu"
         aria-expanded={menu !== null}
         onClick={() => (menu ? setMenu(null) : open())}
         onKeyDown={handleKeyDown}
-      >
-        <span aria-hidden="true">{initial}</span>
-      </button>
+      />
       {menu && <ContextMenu request={menu} onClose={() => setMenu(null)} />}
     </>
   )

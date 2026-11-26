@@ -20,9 +20,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 const STROKE = 1.5
 
 // 肉眼微調（格，正數往右）：量測後實際看起來還是偏的圖示，在量測值上再加這麼多。
-// 登出：左邊的長方形（門）很搶眼，量測值移過去之後看起來仍然偏左
+// 登出：左邊的長方形（門）很搶眼，量測值移過去之後看起來仍然偏左（0.6 格看起來還是偏，11/26 再加到 1 格）
 const MANUAL_ADJUST = {
-  IconLogout: 0.6,
+  IconLogout: 1,
 }
 
 function sourceFiles(dir) {

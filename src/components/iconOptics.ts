@@ -1,4 +1,4 @@
-// 由 scripts/icon-optics.mjs 產生（2026-11-25），新增圖示後重跑，不要手動修改。
+// 由 scripts/icon-optics.mjs 產生（2026-11-26），新增圖示後重跑，不要手動修改。
 // 數字的單位是圖示的 24 格，實際的 px 依圖示大小換算。
 
 /** 把圖示模糊後「看得到的那一團」移到正中間要水平移動多少（正數往右），已含腳本裡的肉眼微調（IconLogout） */
@@ -20,8 +20,9 @@ export const ICON_OPTICAL_SHIFT: Record<string, number> = {
   IconLayoutNavbarCollapse: 0,
   IconLayoutNavbarExpand: 0,
   IconLayoutRows: 0,
-  IconLogout: 2.33,
+  IconLogout: 2.73,
   IconMarkdown: 0,
+  IconMenu2: 0,
   IconPencil: 0.49,
   IconPhotoPlus: 0.23,
   IconRefresh: 0,
@@ -29,4 +30,4 @@ export const ICON_OPTICAL_SHIFT: Record<string, number> = {
 }
 
 /** 選單的圖示靠左排時，整欄要移多少，這一團的左緣才會平均對齊文字的左邊 */
-export const MENU_ICON_SHIFT = -2.15
+export const MENU_ICON_SHIFT = -2.18

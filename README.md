@@ -16,7 +16,7 @@ npm run dev                  # http://localhost:5173
 | `npm run build` | 型別檢查並打包到 `dist/` |
 | `npm run preview` | 在本機預覽打包結果 |
 | `npm run lint` | oxlint 檢查 |
-| `npm test` | 執行單元測試（Markdown 與 XSS、貼圖壓縮、ZIP 匯出、離線與同步） |
+| `npm test` | 執行單元測試（Markdown 與 XSS、貼圖壓縮、ZIP 匯出、離線與同步、編輯器的行號） |
 | `npm run test:rls` | 用 A、B 測試帳號檢查資料隔離（見 docs/database.md） |
 | `npm run test:sync` | 用 A、B 測試帳號在真正的 Supabase 上檢查同步請求（見 docs/offline.md） |
 | `npm run icons` | 從 `public/logo.svg` 重新產生 PWA 圖示 |
