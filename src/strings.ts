@@ -132,11 +132,17 @@ export const strings = {
     contextMenu: {
       label: (name: string) => `${quoted(name)}的操作`,
       topLevelLabel: '最上層的操作',
+      /** 在多選的項目上按右鍵 */
+      selectionLabel: (count: number) => `已選取 ${count} 個項目`,
+      deleteMany: (count: number) => `刪除 ${count} 個項目`,
       newNote: '新增筆記',
       newFolder: '新增資料夾',
       /** 資料夾的右鍵選單：選擇圖片檔上傳到這個資料夾（可以一次選多張） */
       uploadImages: '上傳圖片',
       uploadImagesOffline: '上傳圖片（離線時無法上傳）',
+      /** 從裝置匯入 .md、圖片、ZIP，或整個資料夾到這裡 */
+      importFiles: '匯入檔案',
+      importFolder: '匯入資料夾',
       cut: '剪下',
       copy: '複製',
       paste: '貼上',
@@ -162,9 +168,7 @@ export const strings = {
     folderItems: (count: number) => `有 ${count} 個項目。`,
     folderHelp: '使用側欄上方的圖示或點按右鍵可以在這個資料夾裡新增筆記或資料夾，也可以把剪下、複製的項目貼上在這裡。',
     /** 沒有選任何項目時右側的說明 */
-    noSelection: '從左側選則一篇筆記。在資料夾或筆記上點按右鍵可以新增、剪下、複製、貼上、重新命名、刪除。',
-    /** 接在上一句後面（只有滑鼠能拖曳）；copyKey 是 ⌥ Option 或 Ctrl */
-    dragHelp: (copyKey: string) => `也可以拖曳到別的資料夾來移動，按住 ${copyKey} 改為複製。`,
+    noSelection: '請從 Explorer 選擇項目。',
     /** 新增、改名、刪除的對話框；type 是「資料夾」或「筆記」 */
     dialogs: {
       nameLabel: '名稱',
@@ -177,7 +181,9 @@ export const strings = {
       delete: '刪除',
       deleteFolder: (name: string) => `${quoted(name)}和裡面所有的資料夾、筆記都會被刪除。`,
       deleteNote: (name: string) => `${quoted(name)}會被刪除。`,
-      deleteImage: (name: string) => `${quoted(name)}會被刪除，筆記裡用到它的地方會顯示找不到圖片。`,
+      deleteImage: (name: string) => `${quoted(name)}將被刪除。`,
+      deleteManyTitle: (count: number) => `刪除 ${count} 個項目`,
+      deleteMany: (count: number) => `已選取的 ${count} 個項目將被刪除。`,
       noTrash: '目前沒有垃圾桶，刪除後無法從畫面上還原。',
     },
   },
@@ -221,6 +227,34 @@ export const strings = {
     dimensions: (width: number, height: number) => `${width} × ${height}`,
     /** 預覽下方的說明：怎麼在筆記裡用這張圖；name 是圖片的名稱 */
     usage: (name: string) => `你可以將這張圖片從 Explorer 拖進文字編輯器，或在同一目錄的筆記填入 ![](${name})。`,
+  },
+
+  /** 從裝置匯入檔案、資料夾、ZIP（Workspace、import.ts）。結果顯示在側欄上方 */
+  imports: {
+    reading: '正在讀取檔案...',
+    /** done、total 是第幾個、共幾個（資料夾、筆記、圖片） */
+    progress: (done: number, total: number) => `正在匯入...（${done}/${total}）`,
+    /** 只列出有匯入的，例如「已匯入 1 篇筆記、2 張圖片。」 */
+    done: (folders: number, notes: number, images: number) => {
+      const parts = [
+        folders > 0 && `${folders} 個資料夾`,
+        notes > 0 && `${notes} 篇筆記`,
+        images > 0 && `${images} 張圖片`,
+      ].filter(Boolean)
+      return parts.length > 0 ? `已匯入 ${parts.join('、')}。` : '沒有匯入任何項目。'
+    },
+    /** 接在 done 後面 */
+    skipped: (count: number) => `略過 ${count} 個不支援的檔案。`,
+    offlineImages: (count: number) => `無法於離線時匯入圖片，略過 ${count} 張。`,
+    /** 有些失敗時；name 是第一個失敗的檔名 */
+    someFailed: (failed: number, name: string, message: string) => `${failed} 個檔案沒有匯入（${name}：${message}）`,
+    nothing: '沒有可以匯入的檔案。',
+    /** 檔名換掉不符合規則的字之後變成空的時候用的名稱 */
+    untitled: '未命名',
+    parentFailed: '所在的資料夾沒有建立。',
+    readFailed: '無法讀取檔案。',
+    badZip: '無法讀取資料。',
+    tooMany: (max: number) => `一次最多匯入 ${max} 個檔案。`,
   },
 
   /** 筆記編輯器（NoteEditor） */

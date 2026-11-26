@@ -327,14 +327,15 @@ export default function NoteEditor({
     void insertImages(images, { pasted: true })
   }
 
-  /** 把檔案總管的圖片拖進來：插入從這篇筆記到那張圖片的相對路徑 */
-  async function insertImageLink(nodeId: string) {
+  /** 把檔案總管的圖片拖進來（可以好幾張）：插入從這篇筆記到圖片的相對路徑，一張一行；不是圖片的略過 */
+  async function insertImageLinks(nodeIds: string[]) {
     try {
-      const nodes = await repo.listAll()
-      const index = createPathIndex(nodes)
-      const target = index.byId.get(nodeId)
-      if (target?.type !== 'image') return
-      insertAtCursor(`![](${markdownLinkTarget(relativeImagePath(index, folderId, target))})`)
+      const index = createPathIndex(await repo.listAll())
+      const links = nodeIds.flatMap((id) => {
+        const target = index.byId.get(id)
+        return target?.type === 'image' ? [`![](${markdownLinkTarget(relativeImagePath(index, folderId, target))})`] : []
+      })
+      if (links.length > 0) insertAtCursor(links.join('\n'))
     } catch (err) {
       setImageStatus({ kind: 'error', text: err instanceof RepoError ? err.message : strings.editor.image.failed })
     }
@@ -345,9 +346,9 @@ export default function NoteEditor({
     if (!handlesDrag(event.dataTransfer.types)) return
     event.preventDefault()
     textarea.current?.focus()
-    const nodeId = event.dataTransfer.getData(NODE_DRAG_TYPE)
-    if (nodeId) {
-      void insertImageLink(nodeId)
+    const nodeIds = event.dataTransfer.getData(NODE_DRAG_TYPE).split('\n').filter(Boolean)
+    if (nodeIds.length > 0) {
+      void insertImageLinks(nodeIds)
       return
     }
     const files = Array.from(event.dataTransfer.files)

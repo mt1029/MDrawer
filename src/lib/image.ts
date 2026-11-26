@@ -89,6 +89,28 @@ export async function compressImage(file: Blob): Promise<CompressedImage> {
   }
 }
 
+/**
+ * 匯入用：已經是 WebP 或 JPEG、不超過大小與尺寸上限、讀得出來的圖片照原樣上傳（例如匯出的 ZIP 匯入回來），
+ * 不重新壓縮，畫質不會每匯入一次就差一點；其他的用 compress（compressImage）壓縮
+ */
+export async function keepOrCompress(file: Blob, compress = compressImage): Promise<CompressedImage> {
+  const format = file.type
+  if ((format === 'image/webp' || format === 'image/jpeg') && file.size <= MAX_IMAGE_BYTES) {
+    let bitmap: ImageBitmap | null = null
+    try {
+      bitmap = await createImageBitmap(file)
+    } catch {
+      // 讀不出來：交給 compress，由它說明原因
+    }
+    if (bitmap) {
+      const { width, height } = bitmap
+      bitmap.close()
+      if (Math.max(width, height) <= MAX_DIMENSION) return { blob: file, format, width, height, originalBytes: file.size }
+    }
+  }
+  return compress(file)
+}
+
 /** 1536 → "1.5 KB"，2400000 → "2.3 MB" */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

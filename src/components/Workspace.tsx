@@ -3,9 +3,11 @@ import {
   IconClipboard,
   IconCopy,
   IconCut,
+  IconFileImport,
   IconFilePlus,
   IconFiles,
   IconFolderPlus,
+  IconFolderUp,
   IconLayoutNavbarCollapse,
   IconLayoutNavbarExpand,
   IconPencil,
@@ -17,7 +19,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { NODE_DRAG_TYPE } from '../lib/dnd.ts'
 import { formatTime } from '../lib/format.ts'
-import { ImageError, compressImage } from '../lib/image.ts'
+import { ImageError, compressImage, keepOrCompress } from '../lib/image.ts'
+import { ImportError, entriesFromDrop, expandZips, filesFromInput, readDropped, runImport, type ImportSource } from '../lib/import.ts'
+import { planImport } from '../lib/importPlan.ts'
 import {
   RepoError,
   folderPath,
@@ -29,6 +33,7 @@ import {
   type NodeType,
 } from '../lib/repo.ts'
 import type { LineHit, SearchResult } from '../lib/search.ts'
+import { rangeBetween, topLevelOnly, visibleOrder } from '../lib/selection.ts'
 import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
 import { useMirror } from '../lib/useMirror.ts'
@@ -48,21 +53,19 @@ const keyOf = (parentId: string | null) => parentId ?? ROOT
 type DialogState =
   | { kind: 'create'; type: NodeType; parentId: string | null }
   | { kind: 'rename'; node: NodeMeta }
-  | { kind: 'delete'; node: NodeMeta }
+  | { kind: 'delete'; nodes: NodeMeta[] }
 
 /** 側欄的面板：檔案總管或搜尋 */
 type Panel = 'explorer' | 'search'
 
 /** 剪下或複製、還沒貼上的項目（App 自己的剪貼簿，不影響系統剪貼簿） */
-type Clipboard = { mode: 'cut' | 'copy'; node: NodeMeta }
+type Clipboard = { mode: 'cut' | 'copy'; nodes: NodeMeta[] }
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
 /** 快捷鍵的顯示文字：Mac 為 ⌘X，其他為 Ctrl+X */
 const shortcut = (key: string) => (IS_MAC ? `⌘${key}` : `Ctrl+${key}`)
 /** 打開搜尋的快捷鍵（跟 VS Code 一樣） */
 const SEARCH_SHORTCUT = IS_MAC ? '⇧⌘F' : 'Ctrl+Shift+F'
-/** 拖曳時按住這個鍵是複製（Mac 為 Option，其他為 Ctrl），跟 VS Code 一樣 */
-const COPY_KEY = IS_MAC ? '⌥ Option' : 'Ctrl'
 const isCopyDrag = (event: DragEvent) => (IS_MAC ? event.altKey : event.ctrlKey)
 // 只有滑鼠能拖曳；觸控裝置長按是開選單，用剪下、貼上移動
 const CAN_DRAG = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
@@ -125,13 +128,19 @@ export default function Workspace({ cloud }: Props) {
   // 每個資料夾已載入的子項目，key 為資料夾 id，根目錄為 ROOT
   const [childrenOf, setChildrenOf] = useState<Record<string, NodeMeta[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  // 目前打開的項目（右側顯示的那一個）與選取的項目（可以多選）。跟 VS Code 一樣，⌘／Ctrl、Shift 點選只改變選取，
+  // 右側仍顯示原本打開的項目（所以可以多選好幾張圖片拖進打開的筆記）。Shift 點選從 anchor 選到點的那一個
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
+  const anchor = useRef<string | null>(null)
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // 上傳圖片的進度與結果（側欄上方）。上傳完成的訊息幾秒後自動消失
-  const [upload, setUpload] = useState<{ text: string; busy: boolean } | null>(null)
+  // 上傳圖片、匯入的進度與結果（側欄上方）。完成的訊息幾秒後自動消失；sticky 的（例如有略過的檔案）按「OK」才消失
+  const [notice, setNotice] = useState<{ text: string; busy: boolean; sticky?: boolean } | null>(null)
   const uploadInput = useRef<HTMLInputElement>(null)
   const uploadTarget = useRef<string | null>(null)
+  const importInput = useRef<HTMLInputElement>(null)
+  const importTarget = useRef<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [panel, setPanel] = useState<Panel>('explorer')
   // 搜尋框的內容放在這裡：切到檔案總管再切回來還在
@@ -145,7 +154,7 @@ export default function Workspace({ cloud }: Props) {
   const [menu, setMenu] = useState<(MenuRequest & { targetId: string | null }) | null>(null)
   const [clipboard, setClipboard] = useState<Clipboard | null>(null)
   // 拖曳中的項目，以及要放進去的位置（資料夾 id；null 為最上層；undefined 為沒有）
-  const [dragging, setDragging] = useState<NodeMeta | null>(null)
+  const [dragging, setDragging] = useState<NodeMeta[] | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null | undefined>(undefined)
   const expandTimer = useRef<{ id: string; timer: number } | null>(null)
   // 小螢幕：目前在編輯器畫面（否則在清單畫面）。回到清單時恢復原本的捲動位置
@@ -181,6 +190,22 @@ export default function Workspace({ cloud }: Props) {
   }, [childrenOf])
 
   const selected = selectedId ? (nodesById.get(selectedId) ?? null) : null
+  // 選取的項目（看得到的）；超過一個時，右鍵選單、剪下、複製、刪除、拖曳都是整個選取一起
+  const selection = [...selectedIds].flatMap((id) => nodesById.get(id) ?? [])
+  const multiple = selection.length > 1
+
+  /** 要處理的項目：在多選裡的項目就是整個選取（只留最上層，裡面的會跟著處理），不然就是它自己 */
+  function itemsFor(node: NodeMeta): NodeMeta[] {
+    if (!multiple || !selectedIds.has(node.id)) return [node]
+    return topLevelOnly(selection, (id) => nodesById.get(id)?.parent_id)
+  }
+
+  /** 只選一個項目（null 為都不選） */
+  function selectOnly(id: string | null) {
+    setSelectedId(id)
+    setSelectedIds(id ? new Set([id]) : new Set())
+    anchor.current = id
+  }
   // 新增的項目放在：資料夾裡、筆記所在的資料夾，或最上層
   const parentFor = (node: NodeMeta | null) => (node ? (node.type === 'folder' ? node.id : node.parent_id) : null)
   const placeName = (parentId: string | null) =>
@@ -204,8 +229,22 @@ export default function Workspace({ cloud }: Props) {
     }
   }
 
-  function select(node: NodeMeta | null) {
-    setSelectedId(node?.id ?? null)
+  function select(node: NodeMeta | null, how: { toggle?: boolean; range?: boolean } = {}) {
+    // ⌘／Ctrl、Shift 點選是多選：只改變選取，不打開、不展開（小螢幕沒有這些按鍵，只能單選）
+    if (node && !narrow && (how.toggle || how.range)) {
+      if (how.range) {
+        const order = visibleOrder((parentId) => childrenOf[keyOf(parentId)], expanded)
+        setSelectedIds(new Set(rangeBetween(order, anchor.current ?? selectedId, node.id)))
+        return
+      }
+      const next = new Set(selectedIds)
+      if (next.has(node.id)) next.delete(node.id)
+      else next.add(node.id)
+      setSelectedIds(next)
+      anchor.current = node.id
+      return
+    }
+    selectOnly(node?.id ?? null)
     if (node?.type === 'folder') {
       // 小螢幕點資料夾就是展開／收合；大螢幕點了會展開，收合用左邊的箭頭
       if (narrow) toggle(node)
@@ -269,7 +308,7 @@ export default function Workspace({ cloud }: Props) {
       // 筆記所在的資料夾重新讀一次，確定讀得到這篇（例如剛同步進來的）
       await loadChildren(result.note.parent_id)
       setExpanded((prev) => new Set([...prev, ...result.ancestors]))
-      setSelectedId(result.note.id)
+      selectOnly(result.note.id)
       if (hit) {
         revealCount.current += 1
         setReveal({ noteId: result.note.id, offset: hit.offset, length: hit.length, key: revealCount.current })
@@ -359,7 +398,7 @@ export default function Workspace({ cloud }: Props) {
     const node = await repo.createNode({ parentId, type, name })
     await loadChildren(parentId)
     if (parentId) setExpanded((prev) => new Set(prev).add(parentId))
-    setSelectedId(node.id)
+    selectOnly(node.id)
     setDialog(null)
     // 小螢幕新增筆記後直接進入編輯器
     if (type === 'note') openDetail()
@@ -379,25 +418,39 @@ export default function Workspace({ cloud }: Props) {
     if (targetId) setExpanded((prev) => new Set(prev).add(targetId))
   }
 
-  /** 複製到 targetId 資料夾，完成後選取副本 */
-  async function copyInto(node: NodeMeta, targetId: string | null) {
+  /** 複製到 targetId 資料夾，回傳副本 */
+  async function copyInto(node: NodeMeta, targetId: string | null): Promise<NodeMeta> {
     const duplicate = await repo.copyNode(node.id, targetId)
     await loadChildren(targetId)
     if (targetId) setExpanded((prev) => new Set(prev).add(targetId))
-    setSelectedId(duplicate.id)
+    return duplicate
   }
 
-  /** 貼上剪下或複製的項目。剪下的貼上一次就清掉，複製的可以貼很多次 */
+  /** 一個一個移動或複製到 targetId 資料夾；複製的話選取所有副本。遇到錯誤就停下來（前面的已經完成） */
+  async function transfer(nodes: NodeMeta[], targetId: string | null, mode: 'move' | 'copy') {
+    const copies: string[] = []
+    try {
+      for (const node of nodes) {
+        if (mode === 'move') await moveInto(node, targetId)
+        else copies.push((await copyInto(node, targetId)).id)
+      }
+    } finally {
+      // 複製一個：打開副本（跟原本一樣）；複製好幾個：選取所有副本，右側維持原本打開的項目
+      if (copies.length === 1) selectOnly(copies[0])
+      else if (copies.length > 1) {
+        setSelectedIds(new Set(copies))
+        anchor.current = copies[copies.length - 1]
+      }
+    }
+  }
+
+  /** 貼上剪下或複製的項目（可以好幾個）。剪下的貼上一次就清掉，複製的可以貼很多次 */
   async function paste(targetId: string | null) {
     if (!clipboard) return
     setError(null)
     try {
-      if (clipboard.mode === 'cut') {
-        await moveInto(clipboard.node, targetId)
-        setClipboard(null)
-      } else {
-        await copyInto(clipboard.node, targetId)
-      }
+      await transfer(clipboard.nodes, targetId, clipboard.mode === 'cut' ? 'move' : 'copy')
+      if (clipboard.mode === 'cut') setClipboard(null)
     } catch (err) {
       report(err)
     }
@@ -416,7 +469,7 @@ export default function Workspace({ cloud }: Props) {
     const failed: { name: string; message: string }[] = []
     let last: string | null = null
     for (const [index, file] of files.entries()) {
-      setUpload({ text: strings.images.uploading(index + 1, files.length), busy: true })
+      setNotice({ text: strings.images.uploading(index + 1, files.length), busy: true })
       try {
         const image = await compressImage(file)
         const fileId = await repo.uploadImage(image.blob)
@@ -439,21 +492,82 @@ export default function Workspace({ cloud }: Props) {
       report(err)
     }
     if (parentId) setExpanded((prev) => new Set(prev).add(parentId))
-    if (last) setSelectedId(last)
+    if (last) selectOnly(last)
     if (failed.length > 0) {
-      setUpload(null)
+      setNotice(null)
       setError(strings.images.someFailed(failed.length, failed[0].name, failed[0].message))
     } else {
-      setUpload({ text: strings.images.uploaded(files.length), busy: false })
+      setNotice({ text: strings.images.uploaded(files.length), busy: false })
     }
   }
 
-  // 上傳完成的訊息幾秒後消失
+  /** 右鍵選單的「匯入檔案」「匯入資料夾」：選檔案（.md、圖片、ZIP，可以多選）或整個資料夾，匯入到 parentId 資料夾 */
+  function chooseImport(parentId: string | null, folder: boolean) {
+    const input = importInput.current
+    if (!input) return
+    importTarget.current = parentId
+    input.webkitdirectory = folder
+    input.accept = folder ? '' : '.md,.markdown,.zip,image/*'
+    input.click()
+  }
+
+  /**
+   * 匯入選到、拖進來的檔案到 parentId 資料夾（spec 第 3 節加分項）。
+   * 完成後選取直接放進去的項目；有略過、失敗的檔案時說明原因
+   */
+  async function importInto(parentId: string | null, read: () => Promise<ImportSource>) {
+    setError(null)
+    setNotice({ text: strings.imports.reading, busy: true })
+    try {
+      const source = await expandZips(await read())
+      const plan = planImport(source.files, source.folders)
+      if (plan.folders.length + plan.notes.length + plan.images.length === 0) {
+        // 沒有支援的檔案（或全部讀不到）
+        const [failed] = source.failed
+        setNotice(null)
+        setError(failed ? strings.imports.someFailed(source.failed.length, failed.name, failed.message) : strings.imports.nothing)
+        return
+      }
+      const result = await runImport(plan, parentId, {
+        repo,
+        compress: (file) => keepOrCompress(file),
+        cloud,
+        onProgress: (done, total) => setNotice({ text: strings.imports.progress(done, total), busy: true }),
+      })
+      await loadChildren(parentId).catch(report)
+      if (parentId) setExpanded((prev) => new Set(prev).add(parentId))
+      const [first, ...rest] = result.created
+      if (first && rest.length === 0) {
+        selectOnly(first.id)
+        if (first.type === 'folder') expand(first.id)
+      } else if (first) {
+        setSelectedIds(new Set(result.created.map((node) => node.id)))
+        anchor.current = result.created[result.created.length - 1].id
+      }
+
+      const failed = [...source.failed, ...result.failed]
+      if (failed.length > 0) setError(strings.imports.someFailed(failed.length, failed[0].name, failed[0].message))
+      const extra = [
+        result.skipped > 0 && strings.imports.skipped(result.skipped),
+        result.offlineImages > 0 && strings.imports.offlineImages(result.offlineImages),
+      ].filter((text): text is string => Boolean(text))
+      setNotice({
+        text: [strings.imports.done(result.folders, result.notes, result.images), ...extra].join(' '),
+        busy: false,
+        sticky: extra.length > 0,
+      })
+    } catch (err) {
+      setNotice(null)
+      setError(err instanceof ImportError ? err.message : strings.common.unexpectedReload)
+    }
+  }
+
+  // 上傳、匯入完成的訊息幾秒後消失
   useEffect(() => {
-    if (!upload || upload.busy) return
-    const timer = window.setTimeout(() => setUpload(null), 4000)
+    if (!notice || notice.busy || notice.sticky) return
+    const timer = window.setTimeout(() => setNotice(null), 4000)
     return () => window.clearTimeout(timer)
-  }, [upload])
+  }, [notice])
 
   /** 游標下的項目：資料夾就放進去，筆記就放進它所在的資料夾 */
   const dropTargetOf = (node: NodeMeta | null) => parentFor(node)
@@ -473,19 +587,31 @@ export default function Workspace({ cloud }: Props) {
     setDropTarget(undefined)
   }
 
+  /** 從電腦拖進來的檔案、資料夾（匯入） */
+  const isFileDrag = (event: DragEvent) => event.dataTransfer.types.includes('Files')
+
   /** 游標移到 node（null 為空白處）上：可以放就標示出來，停在收合的資料夾上一會兒就展開 */
   function dragOver(node: NodeMeta | null, event: DragEvent<HTMLElement>) {
     event.stopPropagation()
-    if (!dragging) return // 從外面拖進來的東西（例如檔案）不處理
     const target = dropTargetOf(node)
-    const copying = isCopyDrag(event)
-    // 自己裡面不能放；移動到原本的位置沒有意義（複製可以，會變成「 (2)」）
-    if (isInside(dragging, target) || (!copying && target === dragging.parent_id)) {
-      if (dropTarget !== undefined) setDropTarget(undefined)
-      return
+    if (dragging) {
+      const copying = isCopyDrag(event)
+      // 自己裡面不能放；全部都移動到原本的位置沒有意義（複製可以，會變成「 (2)」）
+      if (
+        dragging.some((item) => isInside(item, target)) ||
+        (!copying && dragging.every((item) => item.parent_id === target))
+      ) {
+        if (dropTarget !== undefined) setDropTarget(undefined)
+        return
+      }
+      event.preventDefault()
+      event.dataTransfer.dropEffect = copying ? 'copy' : 'move'
+    } else if (isFileDrag(event)) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    } else {
+      return // 其他從外面拖進來的東西（例如文字）不處理
     }
-    event.preventDefault()
-    event.dataTransfer.dropEffect = copying ? 'copy' : 'move'
     if (dropTarget !== target) setDropTarget(target)
 
     if (node?.type === 'folder' && !expanded.has(node.id)) {
@@ -506,11 +632,17 @@ export default function Workspace({ cloud }: Props) {
     const target = dropTargetOf(node)
     const copying = isCopyDrag(event)
     clearDrag()
-    if (!source || isInside(source, target)) return
+    if (!source && isFileDrag(event)) {
+      // 要在 drop 事件裡先取出拖進來的項目，事件結束後就讀不到了
+      const entries = entriesFromDrop(event.dataTransfer)
+      void importInto(target, () => readDropped(entries))
+      return
+    }
+    if (!source || source.some((item) => isInside(item, target))) return
     setError(null)
     try {
-      if (copying) await copyInto(source, target)
-      else await moveInto(source, target)
+      // 移動時，已經在目標資料夾的跳過
+      await transfer(copying ? source : source.filter((item) => item.parent_id !== target), target, copying ? 'copy' : 'move')
     } catch (err) {
       report(err)
     }
@@ -519,9 +651,11 @@ export default function Workspace({ cloud }: Props) {
   const treeDrag: TreeDrag | undefined = CAN_DRAG
     ? {
         onDragStart(node, event) {
-          event.dataTransfer.setData(NODE_DRAG_TYPE, node.id)
+          // 拖的是多選裡的項目就整個選取一起拖；拖到編輯區時用換行分隔的 id 插入所有圖片
+          const items = itemsFor(node)
+          event.dataTransfer.setData(NODE_DRAG_TYPE, items.map((item) => item.id).join('\n'))
           event.dataTransfer.effectAllowed = 'copyMove'
-          setDragging(node)
+          setDragging(items)
         },
         onDragOver: dragOver,
         onDrop: (node, event) => void drop(node, event),
@@ -529,10 +663,13 @@ export default function Workspace({ cloud }: Props) {
       }
     : undefined
 
-  async function handleDelete(node: NodeMeta) {
-    await repo.deleteNode(node.id)
-    await loadChildren(node.parent_id)
-    setSelectedId(null)
+  async function handleDelete(nodes: NodeMeta[]) {
+    try {
+      for (const node of nodes) await repo.deleteNode(node.id)
+    } finally {
+      await Promise.all([...new Set(nodes.map((node) => node.parent_id))].map((parentId) => loadChildren(parentId)))
+    }
+    selectOnly(null)
     setDialog(null)
   }
 
@@ -556,16 +693,35 @@ export default function Workspace({ cloud }: Props) {
    */
   function menuItemsFor(node: NodeMeta | null): MenuItems {
     const text = strings.workspace.contextMenu
+    // 在多選的項目上按右鍵：整個選取一起剪下、複製、刪除（不能改名、新增）
+    if (node && multiple && selectedIds.has(node.id)) {
+      const items = itemsFor(node)
+      return [
+        { label: text.cut, icon: <Icon of={IconCut} />, shortcut: shortcut('X'), onSelect: () => setClipboard({ mode: 'cut', nodes: items }) },
+        { label: text.copy, icon: <Icon of={IconCopy} />, shortcut: shortcut('C'), onSelect: () => setClipboard({ mode: 'copy', nodes: items }) },
+        'separator',
+        {
+          label: text.deleteMany(selection.length),
+          icon: <Icon of={IconTrash} />,
+          shortcut: IS_MAC ? '⌘⌫' : 'Delete',
+          danger: true,
+          onSelect: () => setDialog({ kind: 'delete', nodes: items }),
+        },
+      ]
+    }
     const parentId = parentFor(node)
     const create: MenuItems = [
       { label: text.newNote, icon: <Icon of={IconFilePlus} />, onSelect: () => openCreate('note', parentId) },
       { label: text.newFolder, icon: <Icon of={IconFolderPlus} />, onSelect: () => openCreate('folder', parentId) },
+      'separator',
       {
         label: cloud ? text.uploadImages : text.uploadImagesOffline,
         icon: <Icon of={IconPhotoUp} />,
         disabled: !cloud,
         onSelect: () => chooseImages(parentId),
       },
+      { label: text.importFiles, icon: <Icon of={IconFileImport} />, onSelect: () => chooseImport(parentId, false) },
+      { label: text.importFolder, icon: <Icon of={IconFolderUp} />, onSelect: () => chooseImport(parentId, true) },
     ]
     const pasteItem: MenuItems[number] = {
       label: text.paste,
@@ -576,8 +732,8 @@ export default function Workspace({ cloud }: Props) {
     }
     if (!node) return [...create, 'separator', pasteItem]
     const clip: MenuItems = [
-      { label: text.cut, icon: <Icon of={IconCut} />, shortcut: shortcut('X'), onSelect: () => setClipboard({ mode: 'cut', node }) },
-      { label: text.copy, icon: <Icon of={IconCopy} />, shortcut: shortcut('C'), onSelect: () => setClipboard({ mode: 'copy', node }) },
+      { label: text.cut, icon: <Icon of={IconCut} />, shortcut: shortcut('X'), onSelect: () => setClipboard({ mode: 'cut', nodes: [node] }) },
+      { label: text.copy, icon: <Icon of={IconCopy} />, shortcut: shortcut('C'), onSelect: () => setClipboard({ mode: 'copy', nodes: [node] }) },
       pasteItem,
     ]
     const edit: MenuItems = [
@@ -588,7 +744,7 @@ export default function Workspace({ cloud }: Props) {
         icon: <Icon of={IconTrash} />,
         shortcut: IS_MAC ? '⌘⌫' : 'Delete',
         danger: true,
-        onSelect: () => setDialog({ kind: 'delete', node }),
+        onSelect: () => setDialog({ kind: 'delete', nodes: [node] }),
       },
     ]
     return node.type === 'folder' ? [...create, 'separator', ...clip, 'separator', ...edit] : [...clip, 'separator', ...edit]
@@ -598,29 +754,40 @@ export default function Workspace({ cloud }: Props) {
     setMenu({
       x,
       y,
-      label: node ? strings.workspace.contextMenu.label(node.name) : strings.workspace.contextMenu.topLevelLabel,
+      label: !node
+        ? strings.workspace.contextMenu.topLevelLabel
+        : multiple && selectedIds.has(node.id)
+          ? strings.workspace.contextMenu.selectionLabel(selection.length)
+          : strings.workspace.contextMenu.label(node.name),
       items: menuItemsFor(node),
       targetId: node?.id ?? null,
     })
   })
 
-  /** 樹的快捷鍵：剪下／複製／貼上、F2 改名、Delete 刪除、右鍵頭展開、左鍵頭收合、Esc 取消剪下 */
+  /**
+   * 樹的快捷鍵：剪下／複製／貼上、F2 改名、Delete 刪除、右鍵頭展開、左鍵頭收合、Esc 取消剪下或多選。
+   * 剪下、複製、刪除在多選的項目上時，整個選取一起處理
+   */
   function handleItemKeyDown(node: NodeMeta, event: KeyboardEvent<HTMLElement>) {
     const isFolder = node.type === 'folder'
     const mod = event.metaKey || event.ctrlKey
     const key = event.key.toLowerCase()
     if (mod && key === 'x') {
-      setClipboard({ mode: 'cut', node })
+      setClipboard({ mode: 'cut', nodes: itemsFor(node) })
     } else if (mod && key === 'c') {
-      setClipboard({ mode: 'copy', node })
+      setClipboard({ mode: 'copy', nodes: itemsFor(node) })
     } else if (mod && key === 'v') {
       void paste(parentFor(node))
     } else if (event.key === 'Escape' && clipboard?.mode === 'cut') {
       setClipboard(null)
+    } else if (event.key === 'Escape' && multiple) {
+      // 取消多選：只留打開的項目
+      setSelectedIds(selectedId ? new Set([selectedId]) : new Set())
+      anchor.current = selectedId
     } else if (event.key === 'F2') {
       setDialog({ kind: 'rename', node })
     } else if (event.key === 'Delete' || (event.key === 'Backspace' && (event.metaKey || event.ctrlKey))) {
-      setDialog({ kind: 'delete', node })
+      setDialog({ kind: 'delete', nodes: itemsFor(node) })
     } else if (event.key === 'ArrowRight' && isFolder && !expanded.has(node.id)) {
       expand(node.id)
     } else if (event.key === 'ArrowLeft' && isFolder && expanded.has(node.id)) {
@@ -740,9 +907,17 @@ export default function Workspace({ cloud }: Props) {
                 {error}
               </p>
             )}
-            {upload && (
+            {notice && (
               <p className="message notice" role="status">
-                {upload.text}
+                {notice.text}
+                {notice.sticky && (
+                  <>
+                    {' '}
+                    <button type="button" className="link-button" onClick={() => setNotice(null)}>
+                      {strings.common.gotIt}
+                    </button>
+                  </>
+                )}
               </p>
             )}
 
@@ -764,13 +939,14 @@ export default function Workspace({ cloud }: Props) {
               <FileTree
                 childrenOf={(parentId) => childrenOf[keyOf(parentId)]}
                 expanded={expanded}
-                selectedId={selectedId}
+                selectedIds={selectedIds}
+                currentId={selectedId}
                 menuTargetId={menu?.targetId}
                 onSelect={select}
                 onToggle={toggle}
                 menuTrigger={menuTrigger}
                 onItemKeyDown={handleItemKeyDown}
-                cutId={clipboard?.mode === 'cut' ? clipboard.node.id : null}
+                cutIds={clipboard?.mode === 'cut' ? new Set(clipboard.nodes.map((node) => node.id)) : undefined}
                 drag={treeDrag}
                 dropTargetId={dropTarget}
               />
@@ -815,7 +991,6 @@ export default function Workspace({ cloud }: Props) {
         ) : (
           <p className="detail-placeholder">
             {strings.workspace.noSelection}
-            {CAN_DRAG && strings.workspace.dragHelp(COPY_KEY)}
           </p>
         )}
       </main>
@@ -840,18 +1015,24 @@ export default function Workspace({ cloud }: Props) {
       )}
       {dialog?.kind === 'delete' && (
         <ConfirmDialog
-          title={strings.workspace.dialogs.deleteTitle(TYPE_LABEL[dialog.node.type])}
+          title={
+            dialog.nodes.length === 1
+              ? strings.workspace.dialogs.deleteTitle(TYPE_LABEL[dialog.nodes[0].type])
+              : strings.workspace.dialogs.deleteManyTitle(dialog.nodes.length)
+          }
           confirmLabel={strings.workspace.dialogs.delete}
           danger
-          onConfirm={() => handleDelete(dialog.node)}
+          onConfirm={() => handleDelete(dialog.nodes)}
           onClose={closeDialog}
         >
           <p>
-            {dialog.node.type === 'folder'
-              ? strings.workspace.dialogs.deleteFolder(dialog.node.name)
-              : dialog.node.type === 'image'
-                ? strings.workspace.dialogs.deleteImage(dialog.node.name)
-                : strings.workspace.dialogs.deleteNote(dialog.node.name)}
+            {dialog.nodes.length > 1
+              ? strings.workspace.dialogs.deleteMany(dialog.nodes.length)
+              : dialog.nodes[0].type === 'folder'
+                ? strings.workspace.dialogs.deleteFolder(dialog.nodes[0].name)
+                : dialog.nodes[0].type === 'image'
+                  ? strings.workspace.dialogs.deleteImage(dialog.nodes[0].name)
+                  : strings.workspace.dialogs.deleteNote(dialog.nodes[0].name)}
             {strings.workspace.dialogs.noTrash}
           </p>
         </ConfirmDialog>
@@ -867,6 +1048,18 @@ export default function Workspace({ cloud }: Props) {
           const files = Array.from(event.target.files ?? [])
           event.target.value = ''
           void uploadImages(files, uploadTarget.current)
+        }}
+      />
+      {/* 匯入檔案、匯入資料夾共用（chooseImport 切換 webkitdirectory 與 accept） */}
+      <input
+        ref={importInput}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? [])
+          event.target.value = ''
+          if (files.length > 0) void importInto(importTarget.current, async () => filesFromInput(files))
         }}
       />
     </div>
