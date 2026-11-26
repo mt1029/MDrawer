@@ -15,6 +15,7 @@ import {
   IconTrash,
 } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { NODE_DRAG_TYPE } from '../lib/dnd.ts'
 import { formatTime } from '../lib/format.ts'
 import { ImageError, compressImage } from '../lib/image.ts'
 import {
@@ -67,8 +68,6 @@ const isCopyDrag = (event: DragEvent) => (IS_MAC ? event.altKey : event.ctrlKey)
 const CAN_DRAG = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 // 拖曳時游標停在收合的資料夾上多久就展開（毫秒）
 const DRAG_EXPAND_MS = 700
-// 拖曳的資料格式：自訂的類型，放到編輯框裡不會變成文字
-const DRAG_TYPE = 'application/x-mdrawer-node'
 // 小螢幕（spec 第 3 節介面改版第 4 步）：側欄與編輯器各佔一整個畫面
 const NARROW = '(max-width: 720px)'
 // 進入編輯器時在瀏覽器歷史記錄加一筆，Android 的返回手勢、Safari 的往回滑都會回到清單
@@ -520,7 +519,7 @@ export default function Workspace({ cloud }: Props) {
   const treeDrag: TreeDrag | undefined = CAN_DRAG
     ? {
         onDragStart(node, event) {
-          event.dataTransfer.setData(DRAG_TYPE, node.id)
+          event.dataTransfer.setData(NODE_DRAG_TYPE, node.id)
           event.dataTransfer.effectAllowed = 'copyMove'
           setDragging(node)
         },
@@ -786,7 +785,13 @@ export default function Workspace({ cloud }: Props) {
 
       <main className="detail">
         {selected?.type === 'image' ? (
-          <ImageViewer key={selected.id} nodeId={selected.id} cloud={cloud} renderHeader={renderHeader(selected)} />
+          <ImageViewer
+            key={selected.id}
+            nodeId={selected.id}
+            name={selected.name}
+            cloud={cloud}
+            renderHeader={renderHeader(selected)}
+          />
         ) : selected?.type === 'note' ? (
           <NoteEditor
             key={selected.id}
@@ -795,6 +800,9 @@ export default function Workspace({ cloud }: Props) {
             onSaved={replaceNode}
             renderHeader={renderHeader(selected)}
             reveal={reveal?.noteId === selected.id ? reveal : undefined}
+            folderId={selected.parent_id}
+            version={dataVersion}
+            onImageCreated={(parentId) => void loadChildren(parentId).catch(report)}
           />
         ) : selected ? (
           <>

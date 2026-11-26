@@ -219,6 +219,8 @@ export const strings = {
     missing: '找不到這張圖片的檔案。',
     /** 圖片的寬與高（像素） */
     dimensions: (width: number, height: number) => `${width} × ${height}`,
+    /** 預覽下方的說明：怎麼在筆記裡用這張圖；name 是圖片的名稱 */
+    usage: (name: string) => `你可以將這張圖片從 Explorer 拖進文字編輯器，或在同一目錄的筆記填入 ![](${name})。`,
   },
 
   /** 筆記編輯器（NoteEditor） */
@@ -260,6 +262,12 @@ export const strings = {
       placeholderRemoved: '圖片已上傳，但因插入位置的資料已遺失而無法插入。',
       failed: '無法插入圖片，請再試一次。',
       offlinePaste: '目前無法連線故插入失敗，請稍後再試。',
+      /** 貼上的截圖放進資料夾時的名稱（後面會接 .webp 或 .jpg）；time 是「年月日-時分秒」 */
+      pastedName: (time: string) => `截圖-${time}`,
+      /** 拖進編輯區的檔案不是圖片 */
+      notImage: '只能把圖片拖曳至編輯區。',
+      /** 拖進來的檔案有圖片也有其他檔案：圖片插入完成後顯示 */
+      skippedFiles: (count: number) => `已插入圖片，有 ${count} 個檔案不是圖片而未插入。`,
     },
   },
 

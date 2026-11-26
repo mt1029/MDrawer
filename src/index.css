@@ -740,6 +740,14 @@ button.link {
   background: var(--fill);
 }
 
+.image-usage {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 .image-viewer figcaption {
   font-size: 0.8125rem;
   color: var(--muted);

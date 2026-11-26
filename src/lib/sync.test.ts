@@ -103,11 +103,7 @@ function fakeCloud() {
     },
     async removeImageIfUnused(fileId) {
       check()
-      const used = [...rows.values()].some(
-        (row) =>
-          !row.deleted_at &&
-          ((row.type === 'image' && row.content === fileId) || (row.type === 'note' && (row.content ?? '').includes(`img:${fileId}`))),
-      )
+      const used = [...rows.values()].some((row) => !row.deleted_at && row.type === 'image' && row.content === fileId)
       if (used) return false
       state.removedFiles.push(fileId)
       return true
@@ -250,16 +246,6 @@ describe('資料夾裡的圖片', () => {
     expect(fake.state.removedFiles).toEqual([FILE])
   })
 
-  it('舊的筆記還用 ![](img:<id>) 引用同一個檔案時保留', async () => {
-    const a = device()
-    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
-    await a.repo.createNode({ parentId: null, type: 'note', name: '舊筆記', content: `![](img:${FILE})` })
-    await a.sync()
-    await a.repo.deleteNode(image.id)
-    await a.sync()
-    expect(fake.state.removedFiles).toEqual([])
-  })
-
   it('刪除圖片時 Storage 刪不掉（例如斷線）不影響同步', async () => {
     const a = device()
     const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
@@ -278,11 +264,11 @@ describe('資料夾裡的圖片', () => {
 describe('複製（剪下、複製、貼上）', () => {
   it('複製筆記到同一個資料夾：名稱加上「 (2)」，內容相同，是新的項目', async () => {
     const a = device()
-    const note = await a.repo.createNode({ parentId: null, type: 'note', name: '筆記', content: '內容 ![](img:aaaaaaaa-0000-4000-8000-000000000001)' })
+    const note = await a.repo.createNode({ parentId: null, type: 'note', name: '筆記', content: '內容 ![](圖.webp)' })
     const copy = await a.repo.copyNode(note.id, null)
     expect(copy.id).not.toBe(note.id)
     expect(copy).toMatchObject({ name: '筆記 (2)', version: 0, parent_id: null })
-    expect(await a.content(copy.id)).toBe(await a.content(note.id)) // 圖片引用同一張，不必重新上傳
+    expect(await a.content(copy.id)).toBe(await a.content(note.id))
     const again = await a.repo.copyNode(note.id, null)
     expect(again.name).toBe('筆記 (3)')
   })

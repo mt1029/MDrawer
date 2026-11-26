@@ -1,9 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { markdownLinkTarget } from '../lib/imagePaths.ts'
 import { RepoError, repo } from '../lib/repo.ts'
 import { strings } from '../strings.ts'
 
 interface Props {
   nodeId: string
+  /** 圖片的名稱（說明怎麼在筆記裡引用） */
+  name: string
   /** 可以連到雲端：圖片只存在雲端，離線時無法顯示 */
   cloud: boolean
   /** 畫出標題區（路徑與名稱） */
@@ -16,7 +19,7 @@ type State =
   | { kind: 'message'; text: string; error?: boolean }
 
 /** 在檔案總管選了圖片時，右側顯示的預覽與大小 */
-export default function ImageViewer({ nodeId, cloud, renderHeader }: Props) {
+export default function ImageViewer({ nodeId, name, cloud, renderHeader }: Props) {
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
 
@@ -66,6 +69,7 @@ export default function ImageViewer({ nodeId, cloud, renderHeader }: Props) {
           {size && <figcaption>{strings.images.dimensions(size.width, size.height)}</figcaption>}
         </figure>
       )}
+      <p className="image-usage">{strings.images.usage(markdownLinkTarget(name))}</p>
     </>
   )
 }

@@ -1,14 +1,10 @@
-// ZIP 匯出的「規劃」部分：決定每個資料夾、筆記、圖片在 ZIP 裡的路徑，並把筆記裡舊的
-// img:<id> 改成相對路徑。不讀寫資料，方便單元測試；讀資料與下載在 export.ts。
+// ZIP 匯出的「規劃」部分：決定每個資料夾、筆記、圖片在 ZIP 裡的路徑。
+// 不讀寫資料，方便單元測試；讀資料與下載在 export.ts。
 //
-// 資料夾裡的圖片（type 為 image）跟筆記一樣放在它所在的資料夾，筆記裡的相對路徑不用改。
-// 舊的 ![](img:<id>) 引用的圖片放在 ZIP 根目錄的 images/，連結改成相對路徑。
+// 圖片跟筆記一樣放在它所在的資料夾，筆記照原樣存成 .md：筆記用相對路徑引用圖片（![](架構圖.webp)），
+// ZIP 裡的位置跟 App 裡一樣，連結不用改。
 
-import { extractImageIds, rewriteImageRefs } from './markdown.ts'
 import type { TreeNode } from './nodes.ts'
-
-/** 舊的 img:<id> 引用的圖片放在 ZIP 根目錄的這個資料夾 */
-export const IMAGES_DIR = 'images'
 
 const EXTENSIONS: Record<string, string> = { 'image/webp': 'webp', 'image/jpeg': 'jpg' }
 
@@ -68,10 +64,7 @@ export interface ExportImage {
 export interface ExportPlan {
   folders: ExportFolder[]
   notes: ExportNote[]
-  /** 資料夾裡的圖片 */
   images: ExportImage[]
-  /** 筆記裡舊的 img:<id> 引用到的圖片檔 id，放在根目錄的 images/ */
-  legacyImages: string[]
 }
 
 /** 名稱拆成主檔名與圖片副檔名（沒有認得的副檔名時，副檔名是空字串） */
@@ -89,13 +82,10 @@ function compareNodes(a: TreeNode, b: TreeNode): number {
 
 /**
  * 依資料夾樹排出 ZIP 裡的路徑。
- * @param extensionOf 圖片 id → 副檔名（webp 或 jpg），用來組成圖片的相對路徑
+ * @param extensionOf 圖片檔 id → 副檔名（webp 或 jpg），圖片的名稱沒有副檔名時用
  */
-export function planExport(nodes: TreeNode[], extensionOf: (imageId: string) => string): ExportPlan {
-  const legacyImages = [
-    ...new Set(nodes.flatMap((node) => (node.type === 'note' ? extractImageIds(node.content ?? '') : []))),
-  ]
-  const plan: ExportPlan = { folders: [], notes: [], images: [], legacyImages }
+export function planExport(nodes: TreeNode[], extensionOf: (fileId: string) => string): ExportPlan {
+  const plan: ExportPlan = { folders: [], notes: [], images: [] }
   const ids = new Set(nodes.map((node) => node.id))
   const childrenOf = new Map<string | null, TreeNode[]>()
   for (const node of nodes) {
@@ -133,16 +123,10 @@ export function planExport(nodes: TreeNode[], extensionOf: (imageId: string) => 
 
     // 名稱已經以 .md 結尾時不再重複加
     const file = names.claim(toSafeFileName(node.name.replace(/\.md$/i, '')), '.md')
-    // 圖片都在根目錄的 images/，從筆記所在的資料夾往上回到根目錄
-    const toRoot = '../'.repeat(dir.length)
-    const content = rewriteImageRefs(node.content ?? '', (id) => `${toRoot}${IMAGES_DIR}/${id}.${extensionOf(id)}`)
-    plan.notes.push({ path: [...dir, file].join('/'), content, date })
+    plan.notes.push({ path: [...dir, file].join('/'), content: node.content ?? '', date })
   }
 
   const rootNames = new NameRegistry()
-  // 有舊的 img:<id> 時保留給它們的圖片資料夾，使用者的「images」資料夾會變成「images (2)」。
-  // 沒有時不保留：使用者自己的 images 資料夾（裡面的圖片被筆記用相對路徑引用）要維持原名
-  if (legacyImages.length > 0) rootNames.claim(IMAGES_DIR)
   for (const node of childrenOf.get(null) ?? []) place(node, [], rootNames)
   // 兩台裝置同時移動可能造成循環，循環裡的項目從最上層走不到，也放到最上層，避免漏掉
   for (const node of [...nodes].sort(compareNodes)) {
@@ -166,10 +150,6 @@ export async function buildZip(plan: ExportPlan, images: Map<string, Blob>): Pro
   for (const image of plan.images) {
     const blob = images.get(image.fileId)
     if (blob) zip.file(image.path, blob, { date: image.date, compression: 'STORE' })
-  }
-  for (const id of plan.legacyImages) {
-    const blob = images.get(id)
-    if (blob) zip.file(`${IMAGES_DIR}/${id}.${imageExtension(blob.type)}`, blob, { compression: 'STORE' })
   }
   return zip.generateAsync({ type: 'blob', mimeType: 'application/zip', compression: 'DEFLATE' })
 }

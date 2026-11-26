@@ -2,7 +2,6 @@
 // 解壓後是一般的 .md 檔與圖片，用任何 Markdown 編輯器都能直接看（spec 第 3 節標準層）。
 
 import { buildZip, imageExtension, planExport } from './exportPlan.ts'
-import { extractImageIds } from './markdown.ts'
 import { RepoError, repo } from './repo.ts'
 import { strings } from '../strings.ts'
 
@@ -35,18 +34,8 @@ export async function exportAll(onProgress: (progress: ExportProgress) => void):
 
   onProgress({ stage: 'notes' })
   const nodes = await repo.listAll()
-  // 要下載的圖片檔：資料夾裡的圖片，以及筆記裡舊的 img:<id> 引用的
-  const imageIds = [
-    ...new Set(
-      nodes.flatMap((node) =>
-        node.type === 'image' && node.content
-          ? [node.content]
-          : node.type === 'note'
-            ? extractImageIds(node.content ?? '')
-            : [],
-      ),
-    ),
-  ]
+  // 要下載的圖片檔（複製的圖片共用同一個檔案，只下載一次）
+  const imageIds = [...new Set(nodes.flatMap((node) => (node.type === 'image' && node.content ? [node.content] : [])))]
 
   // 下載圖片：找不到的記下來繼續；斷線則整個匯出失敗
   const images = new Map<string, Blob>()
@@ -76,7 +65,7 @@ export async function exportAll(onProgress: (progress: ExportProgress) => void):
     fileName: strings.export.fileName(todayStamp()),
     folderCount: plan.folders.length,
     noteCount: plan.notes.length,
-    imageCount: plan.images.filter((image) => images.has(image.fileId)).length + plan.legacyImages.filter((id) => images.has(id)).length,
+    imageCount: plan.images.filter((image) => images.has(image.fileId)).length,
     missingImages,
   }
 }

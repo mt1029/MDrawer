@@ -6,8 +6,6 @@ import type { TreeNode } from './nodes.ts'
 
 const IMG_A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const IMG_B = 'bbbbbbbb-0000-4000-8000-000000000002'
-const MISSING = 'cccccccc-0000-4000-8000-000000000003'
-
 let seq = 0
 function node(partial: Partial<TreeNode> & Pick<TreeNode, 'type' | 'name'>): TreeNode {
   seq++
@@ -42,12 +40,12 @@ describe('toSafeFileName：各作業系統都能用的檔名', () => {
   })
 })
 
-describe('planExport：資料夾結構與相對路徑', () => {
+describe('planExport：資料夾結構', () => {
   const a = node({ type: 'folder', name: '課程' })
   const b = node({ type: 'folder', name: '第一週', parent_id: a.id })
-  const deep = node({ type: 'note', name: '筆記', parent_id: b.id, content: `![](img:${IMG_A})\n![說明](img:${IMG_B})` })
+  const deep = node({ type: 'note', name: '筆記', parent_id: b.id, content: '![](架構圖.webp)\n![說明](../../首頁.webp)' })
   const readme = node({ type: 'note', name: 'README.md', parent_id: a.id })
-  const root = node({ type: 'note', name: '首頁', content: `![](img:${IMG_A})` })
+  const root = node({ type: 'note', name: '首頁', content: '文字' })
   const empty = node({ type: 'folder', name: '空資料夾' })
   const plan = planExport([deep, root, readme, b, a, empty], ext)
 
@@ -56,10 +54,8 @@ describe('planExport：資料夾結構與相對路徑', () => {
     expect(plan.notes.map((n) => n.path).sort()).toEqual(['首頁.md', '課程/第一週/筆記.md', '課程/README.md'].sort())
   })
 
-  it('圖片改成從筆記所在位置出發的相對路徑，副檔名依格式', () => {
-    const deepNote = plan.notes.find((n) => n.path === '課程/第一週/筆記.md')
-    expect(deepNote?.content).toBe(`![](../../images/${IMG_A}.webp)\n![說明](../../images/${IMG_B}.jpg)`)
-    expect(plan.notes.find((n) => n.path === '首頁.md')?.content).toBe(`![](images/${IMG_A}.webp)`)
+  it('筆記內容照原樣（圖片的相對路徑不用改）', () => {
+    expect(plan.notes.find((n) => n.path === '課程/第一週/筆記.md')?.content).toBe(deep.content)
   })
 
   it('檔案時間是最後修改時間', () => {
@@ -68,18 +64,9 @@ describe('planExport：資料夾結構與相對路徑', () => {
 })
 
 describe('planExport：避免撞名', () => {
-  it('有舊的 img:<id> 時，最上層的「images」讓給它們的圖片，使用者的改名為 images (2)', () => {
-    const plan = planExport(
-      [node({ type: 'folder', name: 'images' }), node({ type: 'note', name: '舊', content: `![](img:${IMG_A})` })],
-      ext,
-    )
-    expect(plan.folders[0].path).toBe('images (2)')
-  })
-
-  it('沒有舊的 img:<id> 時，使用者自己的「images」資料夾維持原名（裡面的圖片被相對路徑引用）', () => {
+  it('使用者自己的「images」資料夾維持原名（裡面的圖片被筆記用相對路徑引用）', () => {
     const plan = planExport([node({ type: 'folder', name: 'images' })], ext)
     expect(plan.folders[0].path).toBe('images')
-    expect(plan.legacyImages).toEqual([])
   })
 
   it('淨化後同名（不分大小寫）時加上編號', () => {
@@ -125,23 +112,26 @@ function resolve(notePath: string, link: string): string {
 }
 
 describe('buildZip：解壓後圖片連結都找得到檔案（spec 驗收條件）', () => {
-  it('每篇筆記裡的圖片連結都指向 ZIP 裡存在的圖片', async () => {
+  it('每篇筆記裡的相對路徑都指向 ZIP 裡存在的圖片', async () => {
     const a = node({ type: 'folder', name: '課程' })
     const b = node({ type: 'folder', name: '第一週', parent_id: a.id })
-    const notes = [
-      node({ type: 'note', name: '根目錄', content: `![](img:${IMG_A})` }),
-      node({ type: 'note', name: '第一層', parent_id: a.id, content: `![](img:${IMG_B})` }),
-      node({ type: 'note', name: '第二層', parent_id: b.id, content: `文字\n\n![](img:${IMG_A}) 與 ![](img:${IMG_B})` }),
+    const entries = [
+      node({ type: 'image', name: 'logo.webp', content: IMG_A }),
+      node({ type: 'image', name: '架構圖.jpg', parent_id: b.id, content: IMG_B }),
+      node({ type: 'note', name: '根目錄', content: '![](logo.webp)' }),
+      node({ type: 'note', name: '第一層', parent_id: a.id, content: '![](第一週/架構圖.jpg)' }),
+      node({ type: 'note', name: '第二層', parent_id: b.id, content: '文字\n\n![](../../logo.webp) 與 ![](架構圖.jpg)' }),
     ]
     const images = new Map([
       [IMG_A, new Blob([new Uint8Array([1, 2, 3])], { type: 'image/webp' })],
       [IMG_B, new Blob([new Uint8Array([4, 5])], { type: 'image/jpeg' })],
     ])
-    const plan = planExport([a, b, ...notes], (id) => (images.get(id)?.type === 'image/jpeg' ? 'jpg' : 'webp'))
+    const plan = planExport([a, b, ...entries], (id) => (images.get(id)?.type === 'image/jpeg' ? 'jpg' : 'webp'))
     const zip = await JSZip.loadAsync(await buildZip(plan, images))
 
-    expect(zip.file(`images/${IMG_A}.webp`)).not.toBeNull()
-    expect(zip.file(`images/${IMG_B}.jpg`)).not.toBeNull()
+    expect(zip.file('logo.webp')).not.toBeNull()
+    expect(zip.file('課程/第一週/架構圖.jpg')).not.toBeNull()
+    expect(Object.keys(zip.files).some((path) => path.startsWith('images/'))).toBe(false)
 
     let checked = 0
     for (const note of plan.notes) {
@@ -155,11 +145,6 @@ describe('buildZip：解壓後圖片連結都找得到檔案（spec 驗收條件
     expect(checked).toBe(4)
   })
 
-  it('下載失敗的圖片仍改成相對路徑（之後補上檔案就能顯示），其他內容照常匯出', async () => {
-    const plan = planExport([node({ type: 'note', name: '缺圖', content: `![](img:${MISSING})` })], () => 'webp')
-    const zip = await JSZip.loadAsync(await buildZip(plan, new Map()))
-    expect(await zip.file('缺圖.md')!.async('string')).toBe(`![](images/${MISSING}.webp)`)
-  })
 })
 
 describe('planExport：資料夾裡的圖片', () => {
@@ -172,7 +157,6 @@ describe('planExport：資料夾裡的圖片', () => {
     const plan = planExport([course, image, note], ext)
     expect(plan.images).toEqual([{ path: '課程/架構圖.webp', fileId: FILE, date: new Date('2026-11-25T08:30:00Z') }])
     expect(plan.notes[0].content).toBe('![](架構圖.webp)')
-    expect(plan.legacyImages).toEqual([])
   })
 
   it('名稱沒有副檔名時依圖片檔的格式加上；撞名時編號在副檔名前面', () => {

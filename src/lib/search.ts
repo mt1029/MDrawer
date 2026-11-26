@@ -2,8 +2,7 @@
 // 這裡只有純函式，不讀 IndexedDB、不碰畫面，方便測試；資料由畫面用 repo.listAll() 取得後傳進來。
 //
 // - 不分大小寫，照字面找：輸入的 . * ( 等符號就是那個字，不是規則運算式。
-// - 圖片的 id（img:<uuid>）不算內容，不然搜「img」或一段十六進位數字，每張圖都會符合。
-//   圖片用說明文字找：![說明](img:…) 的「說明」是一般的內容。
+// - 找的是筆記的原始內容：圖片的連結 ![說明](架構圖.webp) 裡的說明與檔名也找得到。
 
 import { strings } from '../strings.ts'
 import { compareNames, folderPath, type TreeNode } from './nodes.ts'
@@ -56,8 +55,6 @@ export const MAX_LINES_PER_NOTE = 5
 /** 很長的行只顯示符合處附近：符合處前面最多留幾個字、整段最多幾個字 */
 const CONTEXT_BEFORE = 24
 const MAX_SNIPPET = 140
-
-const IMAGE_ID = /img:[0-9a-f-]{36}/gi
 
 type Range = [start: number, end: number]
 
@@ -192,9 +189,7 @@ export function searchNotes(nodes: TreeNode[], query: string): SearchOutcome {
   for (const note of nodes) {
     if (note.type !== 'note') continue
     const nameRanges = findAll(pattern, note.name)
-    // 圖片 id 換成同樣長度的空字元：位置不變，但不會被找到
-    const masked = (note.content ?? '').replace(IMAGE_ID, (id) => '\u0000'.repeat(id.length))
-    const ranges = findAll(pattern, masked)
+    const ranges = findAll(pattern, note.content ?? '')
     if (nameRanges.length === 0 && ranges.length === 0) continue
     matchCount += nameRanges.length + ranges.length
     found.push({ note, path: folderPath(note.parent_id, (id) => byId.get(id)), nameRanges, ranges })

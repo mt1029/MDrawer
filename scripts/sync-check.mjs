@@ -136,7 +136,6 @@ try {
 
   const imageOne = randomUUID()
   const imageTwo = randomUUID()
-  const legacyNote = randomUUID()
   for (const [id, name] of [[imageOne, '圖.webp'], [imageTwo, '圖的副本.webp']]) {
     await a.insertIfAbsent({ id, parent_id: folderId, type: 'image', name, content: fileId })
     created.push(id)
@@ -144,16 +143,11 @@ try {
   await a.updateIfVersion(imageOne, { deleted_at: new Date().toISOString() }, 1)
   check('刪掉一張、另一張還用同一個檔案：保留', (await a.removeImageIfUnused(fileId)) === false && (await fileExists()))
 
-  await a.updateIfVersion(imageTwo, { deleted_at: new Date().toISOString() }, 1)
-  await a.insertIfAbsent({ id: legacyNote, parent_id: folderId, type: 'note', name: '舊寫法', content: `前面 ![](img:${fileId}) 後面` })
-  created.push(legacyNote)
-  check('舊的筆記還用 ![](img:<id>) 引用：保留', (await a.removeImageIfUnused(fileId)) === false && (await fileExists()))
-
   check('B 呼叫：查不到 A 的資料，也刪不到 A 的檔案', (await b.removeImageIfUnused(fileId)) === false && (await fileExists()))
 
-  const noteDeleted = await a.updateIfVersion(legacyNote, { deleted_at: new Date().toISOString() }, 1)
+  const secondDeleted = await a.updateIfVersion(imageTwo, { deleted_at: new Date().toISOString() }, 1)
   const removed = await kindOf(a.removeImageIfUnused(fileId).then((result) => { if (!result) throw new Error('回傳 false') }))
-  check('沒有地方用到：removeImageIfUnused 刪掉檔案', removed === 'ok', `筆記刪除${noteDeleted ? '成功' : '失敗'}，結果：${removed}`)
+  check('沒有地方用到：removeImageIfUnused 刪掉檔案', removed === 'ok', `第二張刪除${secondDeleted ? '成功' : '失敗'}，結果：${removed}`)
   check('刪掉之後 Storage 裡查不到這個檔案', !(await fileExists()))
 } catch (err) {
   failures++

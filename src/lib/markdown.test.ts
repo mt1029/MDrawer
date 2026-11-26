@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { extractImageIds, renderMarkdown, type ImageResolver, type RenderOptions } from './markdown.ts'
+import { extractImagePaths, renderMarkdown, type ImageResolver, type RenderOptions } from './markdown.ts'
 import { strings } from '../strings.ts'
 
 /** 把輸出的 HTML 解析成 DOM（不會執行任何 script），方便檢查 */
-function render(source: string, resolveImage?: ImageResolver, options?: RenderOptions): HTMLElement {
-  const doc = new DOMParser().parseFromString(`<body>${renderMarkdown(source, resolveImage, options)}</body>`, 'text/html')
+function render(source: string, options?: RenderOptions): HTMLElement {
+  const doc = new DOMParser().parseFromString(`<body>${renderMarkdown(source, options)}</body>`, 'text/html')
   return doc.body
 }
 
@@ -121,64 +121,78 @@ describe('Markdown 功能：spec 第 3 節要求的語法', () => {
   })
 })
 
-describe('貼圖：img:<id> 在 DOMPurify 之前換成網址', () => {
-  const ID = '123e4567-e89b-12d3-a456-426614174000'
-  const SIGNED = 'https://abc.supabase.co/storage/v1/object/sign/images/u/x?token=t'
+describe('資料夾裡的圖片：相對路徑在 DOMPurify 之前換成網址', () => {
+  const ID = '3f2c9a10-0000-4000-8000-000000000001'
+  const urls: Record<string, string | null> = {
+    '架構圖.webp': 'https://project.supabase.co/storage/v1/object/sign/images/u/a?token=t',
+    '圖 (1).webp': 'https://project.supabase.co/storage/v1/object/sign/images/u/b?token=t',
+    '不存在.webp': null,
+  }
+  const resolveImage: ImageResolver = (path) => urls[path]
 
-  it('換成簽名網址，而且沒有被 DOMPurify 移除', () => {
-    const img = render(`![](img:${ID})`, (id) => (id === ID ? SIGNED : undefined)).querySelector('img')
-    expect(img?.getAttribute('src')).toBe(SIGNED)
+  it('路徑解碼後交給 resolveImage，換成簽名網址，而且沒有被 DOMPurify 移除', () => {
+    const img = render('![說明](架構圖.webp)', { resolveImage }).querySelector('img')
+    expect(img?.getAttribute('src')).toBe(urls['架構圖.webp'])
+    expect(img?.getAttribute('alt')).toBe('說明')
   })
 
-  it('網址還在取得中：沒有 src，標上 img-loading', () => {
-    const img = render(`![](img:${ID})`, () => undefined).querySelector('img')
-    expect(img?.hasAttribute('src')).toBe(false)
-    expect(img?.className).toBe('img-loading')
+  it('有空白、括號的名稱用 <…> 包起來也找得到', () => {
+    expect(render('![](<圖 (1).webp>)', { resolveImage }).querySelector('img')?.getAttribute('src')).toBe(urls['圖 (1).webp'])
   })
 
-  it('圖片不存在：沒有 src，標上 img-missing', () => {
-    const img = render(`![](img:${ID})`, () => null).querySelector('img')
-    expect(img?.hasAttribute('src')).toBe(false)
+  it('找不到顯示虛線框、取得中顯示佔位框；沒有 resolveImage 一律當成找不到', () => {
+    expect(render('![](不存在.webp)', { resolveImage }).querySelector('img')?.className).toBe('img-missing')
+    expect(render('![](還在取得.webp)', { resolveImage }).querySelector('img')?.className).toBe('img-loading')
+    expect(render('![](還在取得.webp)', { resolveImage, offline: true }).querySelector('.img-offline')).not.toBeNull()
+    const img = render('![](架構圖.webp)').querySelector('img')
     expect(img?.className).toBe('img-missing')
-  })
-
-  it('id 不是 UUID：不查詢，直接標上 img-missing', () => {
-    let asked = false
-    const img = render('![](img:../../etc/passwd)', () => {
-      asked = true
-      return SIGNED
-    }).querySelector('img')
-    expect(asked).toBe(false)
     expect(img?.hasAttribute('src')).toBe(false)
   })
 
   it('換上的網址如果是 javascript:，仍會被 DOMPurify 擋下', () => {
-    const body = render(`![](img:${ID})`, () => 'javascript:alert(1)')
-    expectSafe(body)
+    expectSafe(render('![](a.webp)', { resolveImage: () => 'javascript:alert(1)' }))
   })
 
   it('離線時還沒有網址的圖片顯示「離線時無法載入圖片」（spec 第 6 節 L1）', () => {
-    const body = render(`![說明](img:${ID})`, () => undefined, { offline: true })
+    const body = render('![說明](還在取得.webp)', { resolveImage, offline: true })
     expect(body.querySelector('img')).toBeNull()
     expect(body.querySelector('.img-offline')?.textContent).toBe(strings.markdown.offlineImage)
   })
 
   it('離線時已經有網址的圖片照常顯示，不存在的仍標上 img-missing', () => {
-    const shown = render(`![](img:${ID})`, () => SIGNED, { offline: true }).querySelector('img')
-    expect(shown?.getAttribute('src')).toBe(SIGNED)
-    const missing = render(`![](img:${ID})`, () => null, { offline: true }).querySelector('img')
-    expect(missing?.className).toBe('img-missing')
+    expect(render('![](架構圖.webp)', { resolveImage, offline: true }).querySelector('img')?.getAttribute('src')).toBe(urls['架構圖.webp'])
+    expect(render('![](不存在.webp)', { resolveImage, offline: true }).querySelector('img')?.className).toBe('img-missing')
   })
 
   it('離線佔位框不會帶出圖片說明裡的 HTML', () => {
-    const body = render(`![<img src=x onerror=alert(1)>](img:${ID})`, () => undefined, { offline: true })
+    const body = render('![<img src=x onerror=alert(1)>](還在取得.webp)', { resolveImage, offline: true })
     expectSafe(body)
     expect(body.querySelectorAll('img')).toHaveLength(0)
   })
 
-  it('找出筆記裡的圖片 id，去掉重複並忽略格式不對的', () => {
-    const other = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
-    const source = `![](img:${ID})\n![說明](img:${other})\n![](img:${ID})\n![](img:not-a-uuid)`
-    expect(extractImageIds(source)).toEqual([ID, other])
+  it('外部網址、其他協定（例如舊的 img:）不會交給 resolveImage', () => {
+    const seen: string[] = []
+    render(`![](https://example.com/a.png)\n![](img:${ID})\n![](data:image/png;base64,AA)`, {
+      resolveImage: (path) => {
+        seen.push(path)
+        return null
+      },
+    })
+    expect(seen).toEqual([])
+  })
+
+  it('extractImagePaths：找出相對路徑（解碼、不重複），參考式連結、<…> 也算；網址與其他協定不算', () => {
+    const source = [
+      '![](架構圖.webp)',
+      '![](<圖 (1).webp>)',
+      '![x][ref]',
+      '![](架構圖.webp)',
+      '![](https://example.com/a.png)',
+      `![](img:${ID})`,
+      '`![](程式碼裡的.webp)`',
+      '',
+      '[ref]: ../共用/logo.webp',
+    ].join('\n')
+    expect(extractImagePaths(source)).toEqual(['架構圖.webp', '圖 (1).webp', '../共用/logo.webp'])
   })
 })

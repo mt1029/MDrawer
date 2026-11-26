@@ -89,7 +89,7 @@ SQL 在 [supabase/migrations/20261123010000_create_images_bucket.sql](../supabas
 | 修改 | 原因 |
 | --- | --- |
 | bucket 同時接受 `image/webp` 與 `image/jpeg` | Safari（含所有 iPhone 瀏覽器）的 Canvas 無法輸出 WebP，改存 JPEG |
-| 路徑為「使用者 id/圖片 id」，不加副檔名 | 同一個 `img:<id>` 可能是 WebP 或 JPEG，格式記在 Content-Type |
+| 路徑為「使用者 id/圖片 id」，不加副檔名 | 同一張圖片可能是 WebP 或 JPEG，格式記在 Content-Type；副檔名放在檔案總管裡的名稱 |
 | 政策用正規表示式限制完整路徑 | spec 寫「檔名一律 UUID」，原版政策只檢查第一層資料夾 |
 | 改用 `(select auth.uid())` | 與 nodes 表相同的效能寫法 |
 
@@ -105,11 +105,11 @@ SQL 在 [supabase/migrations/20261123010000_create_images_bucket.sql](../supabas
 
 | # | 操作 | 預期結果 |
 | --- | --- | --- |
-| 1 | 用 A 帳號開一篇筆記，截圖後在編輯區按 Ctrl+V（Mac 為 Cmd+V） | 上方依序顯示「正在壓縮圖片...（原始大小）」「上傳中...（壓縮後大小）」「已插入圖片」，編輯區插入 `![](img:…)`，預覽顯示圖片 |
-| 2 | 按「插入圖片」選一張手機或相機照片 | 同上，大圖會被縮小 |
+| 1 | 用 A 帳號開一篇筆記，截圖後在編輯區按 Ctrl+V（Mac 為 Cmd+V） | 上方依序顯示「正在壓縮圖片...（原始大小）」「上傳中...（壓縮後大小）」「已插入圖片」；筆記所在的資料夾多了「截圖-年月日-時分秒.webp」，編輯區插入 `![](截圖-….webp)`，預覽顯示圖片（11/26 起圖片放在資料夾裡，見下方「資料夾裡的圖片」） |
+| 2 | 按「插入圖片」選一張手機或相機照片；或把電腦裡的圖片拖進編輯區 | 同上，大圖會被縮小；名稱用原本的檔名（副檔名換成 .webp 或 .jpg），有空白時連結寫成 `![](<名稱>)` |
 | 3 | 重新整理頁面 | 圖片仍正常顯示 |
 | 4 | Storage → images → A 的 id 資料夾 | 看得到剛上傳的檔案，類型為 `image/webp`（Safari 為 `image/jpeg`） |
-| 5 | 複製 A 筆記裡的 `![](img:…)`，貼到 B 帳號的筆記 | B 的預覽只顯示虛線框，看不到圖片 |
+| 5 | 終端機執行 `npm run test:sync` | 「B 呼叫：查不到 A 的資料，也刪不到 A 的檔案」通過；Storage 的路徑一定是自己的 id，B 的帳號取不到 A 的圖片網址 |
 | 6 | 用 Safari 貼圖 | 正常插入；照第 4 項看 Storage，類型為 `image/jpeg` |
 | 7 | 在筆記裡寫 `![](https://example.com/a.png)`，到 Vercel 網址看預覽 | 圖片不顯示，Console 有 Content-Security-Policy 的訊息（本機 `npm run dev` 沒有 CSP，所以會顯示） |
 
@@ -145,7 +145,17 @@ SQL 在 [supabase/migrations/20261126000000_images_in_folders.sql](../supabase/m
 | 4 | Table Editor → nodes | 兩列的 `type` 是 `image`，`content` 是 uuid；Storage → images → 你的 id 資料夾裡有同樣 uuid 的檔案 |
 | 5 | 複製其中一張貼到別的資料夾，再刪掉原本那張，等幾秒 | Storage 裡的檔案還在（副本還在用） |
 | 6 | 把副本也刪掉，等幾秒 | Storage 裡的檔案不見了 |
-| 7 | 匯出 ZIP | 圖片在它所在的資料夾裡（例如 `課程/照片.webp`），沒有另外的 `images/` 資料夾（除非還有舊的 `![](img:…)` 筆記） |
+| 7 | 匯出 ZIP | 圖片在它所在的資料夾裡（例如 `課程/照片.webp`） |
+
+## C. 筆記裡的圖片（第 2 步）
+
+| # | 操作 | 預期結果 |
+| --- | --- | --- |
+| 1 | 打開一篇筆記，切到並排，在編輯區按 Ctrl+V 貼一張截圖 | 同一個資料夾多了「截圖-….webp」，編輯區插入 `![](截圖-….webp)`，預覽顯示圖片 |
+| 2 | 把檔案總管裡另一個資料夾的圖片拖進編輯區 | 插入相對路徑，例如 `![](../共用/logo.webp)`，預覽顯示圖片 |
+| 3 | 手打 `![](不存在.webp)` | 預覽顯示虛線框（找不到圖片） |
+| 4 | 把一張圖片改名 | 用舊名稱的連結變成虛線框（連結不會自動更新，spec 第 8 節） |
+| 5 | 匯出 ZIP，用其他 Markdown 編輯器打開 | 筆記裡的相對路徑都找得到圖片（ZIP 裡的位置跟 App 裡一樣） |
 
 ## 同步檢查（離線 L2）
 

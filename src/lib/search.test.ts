@@ -20,7 +20,6 @@ function node(partial: Partial<TreeNode> & Pick<TreeNode, 'type' | 'name'>): Tre
 /** 片段接回一行文字，符合的部分用 [] 標出來，方便比對 */
 const show = (parts: TextPart[] | null) => parts?.map((p) => (p.match ? `[${p.text}]` : p.text)).join('') ?? null
 
-const IMG = 'aaaaaaaa-0000-4000-8000-000000000001'
 
 describe('searchNotes', () => {
   it('沒有輸入（或只有空白）時沒有結果', () => {
@@ -49,12 +48,10 @@ describe('searchNotes', () => {
     expect(show(searchNotes(notes, '(x)*').results[0].lines[0].parts)).toBe('f[(x)*]2')
   })
 
-  it('圖片的 id 不算內容，圖片用說明文字找', () => {
-    const note = node({ type: 'note', name: '圖', content: `![架構圖](img:${IMG})\n這張 img 是範例` })
-    expect(searchNotes([note], 'img').results[0].lines.map((l) => l.line)).toEqual([2])
-    expect(searchNotes([note], 'aaaaaaaa').results).toEqual([])
-    expect(searchNotes([note], '4000-8000').results).toEqual([])
-    expect(show(searchNotes([note], '架構').results[0].lines[0].parts)).toBe(`![[架構]圖](img:${IMG})`)
+  it('圖片的連結裡的說明與檔名也找得到', () => {
+    const note = node({ type: 'note', name: '圖', content: '![系統架構](架構圖.webp)\n其他文字' })
+    expect(show(searchNotes([note], '架構').results[0].lines[0].parts)).toBe('![系統[架構]]([架構]圖.webp)')
+    expect(searchNotes([note], '.webp').results[0].lines.map((l) => l.line)).toEqual([1])
   })
 
   it('行號與位置對得上內容，同一行的多個符合處合成一行', () => {

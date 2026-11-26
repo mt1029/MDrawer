@@ -1,23 +1,66 @@
-import { useEffect, useRef, useState } from 'react'
-import { extractImageIds } from './markdown.ts'
-import { repo } from './repo.ts'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPathIndex, resolveImagePath, type PathIndex } from './imagePaths.ts'
+import { extractImagePaths, type ImageResolver } from './markdown.ts'
+import { repo, type TreeNode } from './repo.ts'
+
+export interface ImageUrlOptions {
+  /** 筆記所在的資料夾（null 為最上層）：相對路徑從這裡算起 */
+  folderId: string | null
+  /** 資料有變（上傳、改名、移動、同步）時改變：重新讀取資料夾裡的圖片 */
+  version: number
+  /** 預覽看得到時才處理（看不到時不讀資料、不取網址） */
+  active: boolean
+  /** 連線且已登入：才能取得圖片網址 */
+  online: boolean
+}
 
 /**
- * 取得筆記裡 img:<id> 圖片的簽名網址。
- * 回傳值：string 為網址、null 為圖片不存在、沒有 key 代表還在取得。
+ * 筆記裡的圖片（相對路徑）→ 簽名網址，給 renderMarkdown 的 resolveImage 用。
+ * 回傳值：string 為網址、null 為找不到、undefined 為還在取得。
  *
- * 剛貼上的圖片也是上傳後再取簽名網址，不用本機的 blob: 網址：
- * DOMPurify 預設會移除 blob: 網址，圖片會顯示不出來。
+ * 先用這台裝置的資料找到路徑指的圖片項目（離線也可以），再用它的圖片檔 id 取網址。
+ * 剛貼上的圖片也是上傳後再取網址，不用本機的 blob: 網址：DOMPurify 預設會移除 blob: 網址，圖片會顯示不出來。
  *
- * enabled 為 false（離線）時不取網址；恢復連線變回 true 時，把還沒有網址的圖片補上。
+ * 離線（online 為 false）時不取網址；恢復連線時，把還沒有網址的圖片補上。
  */
-export function useImageUrls(source: string, enabled = true): Record<string, string | null> {
+export function useImageUrls(source: string, { folderId, version, active, online }: ImageUrlOptions): ImageResolver {
+  // 圖片檔 id → 網址（null 為檔案不存在）
   const [urls, setUrls] = useState<Record<string, string | null>>({})
   const pending = useRef(new Set<string>())
+  // 這台裝置上的資料夾與圖片，用來解析相對路徑
+  const [index, setIndex] = useState<PathIndex<TreeNode> | null>(null)
+
+  const paths = useMemo(() => (active ? extractImagePaths(source) : []), [source, active])
+  const hasPaths = paths.length > 0
 
   useEffect(() => {
-    if (!enabled) return
-    const missing = extractImageIds(source).filter((id) => !(id in urls) && !pending.current.has(id))
+    if (!active || !hasPaths) return
+    let cancelled = false
+    repo
+      .listAll()
+      .then((nodes) => {
+        if (!cancelled) setIndex(createPathIndex(nodes))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [active, hasPaths, version])
+
+  // 路徑 → 圖片檔 id（null 為找不到圖片項目）；資料還沒讀到時為 null
+  const fileOfPath = useMemo(() => {
+    if (!index) return null
+    return new Map(paths.map((path) => [path, resolveImagePath(index, folderId, path)?.content ?? null]))
+  }, [index, paths, folderId])
+
+  const fileIds = useMemo(
+    () => [...new Set([...(fileOfPath?.values() ?? [])].filter((id): id is string => id !== null))],
+    [fileOfPath],
+  )
+
+  useEffect(() => {
+    if (!online) return
+    const missing = fileIds.filter((id) => !(id in urls) && !pending.current.has(id))
     if (missing.length === 0) return
     for (const id of missing) pending.current.add(id)
     repo
@@ -28,7 +71,14 @@ export function useImageUrls(source: string, enabled = true): Record<string, str
       .finally(() => {
         for (const id of missing) pending.current.delete(id)
       })
-  }, [source, urls, enabled])
+  }, [fileIds, urls, online])
 
-  return urls
+  return useCallback<ImageResolver>(
+    (path) => {
+      if (!fileOfPath) return undefined
+      const fileId = fileOfPath.get(path)
+      return fileId ? urls[fileId] : null
+    },
+    [urls, fileOfPath],
+  )
 }

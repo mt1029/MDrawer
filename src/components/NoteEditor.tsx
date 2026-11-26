@@ -7,12 +7,15 @@ import {
   useRef,
   useState,
   type ClipboardEvent,
+  type DragEvent,
   type ReactNode,
 } from 'react'
+import { NODE_DRAG_TYPE } from '../lib/dnd.ts'
 import { ImageError, compressImage, formatBytes } from '../lib/image.ts'
+import { createPathIndex, markdownLinkTarget, relativeImagePath } from '../lib/imagePaths.ts'
 import { lineAt } from '../lib/lines.ts'
 import { renderMarkdown } from '../lib/markdown.ts'
-import { RepoError, mirror, repo, type NodeMeta } from '../lib/repo.ts'
+import { RepoError, imageFileName, mirror, repo, type NodeMeta } from '../lib/repo.ts'
 import { useContextMenuTrigger } from '../lib/useContextMenuTrigger.ts'
 import { useImageUrls } from '../lib/useImageUrls.ts'
 import { useMediaQuery } from '../lib/useMediaQuery.ts'
@@ -66,14 +69,41 @@ interface Props {
   /** 畫出標題區；傳進去的內容（儲存狀態、圖示）放在名稱的同一行 */
   renderHeader: (inline?: ReactNode) => ReactNode
   reveal?: Reveal
+  /** 筆記所在的資料夾（null 為最上層）：插入的圖片放在這裡，預覽的相對路徑也從這裡算起 */
+  folderId: string | null
+  /** 資料有變時改變：預覽重新找資料夾裡的圖片 */
+  version: number
+  /** 在 parentId 資料夾建立了圖片（檔案總管要重新讀取） */
+  onImageCreated?: (parentId: string | null) => void
 }
+
+/** 貼上的截圖的名稱用的時間：年月日-時分秒 */
+function timeStamp(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-` +
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  )
+}
+
+/** 拖曳的東西是不是檔案總管的項目或電腦裡的檔案（這兩種由編輯區處理，其他照瀏覽器原本的行為） */
+const handlesDrag = (types: readonly string[]) => types.includes(NODE_DRAG_TYPE) || types.includes('Files')
 
 /**
  * 筆記編輯器（spec 第 3 節介面改版第 3 步）：預設只有編輯區，右上角的眼睛切換成預覽；
  * 在眼睛上按右鍵或長按可以改成並排。停止輸入一秒後自動儲存到這台裝置，再在背景同步。
  * 儲存狀態與圖示放在標題同一行，不另外佔一行
  */
-export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, reveal }: Props) {
+export default function NoteEditor({
+  noteId,
+  cloud,
+  onSaved,
+  renderHeader,
+  reveal,
+  folderId,
+  version,
+  onImageCreated,
+}: Props) {
   const [content, setContent] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('saved')
@@ -248,8 +278,12 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, revea
     return true
   }
 
-  /** 壓縮 → 上傳 → 把佔位文字換成 ![](img:<id>)；壓縮、上傳時顯示檔案大小 */
-  async function insertImages(files: File[]) {
+  /**
+   * 壓縮 → 上傳 → 放進筆記所在的資料夾（撞名時自動加編號）→ 把佔位文字換成 ![](名稱)。
+   * 貼上的截圖用時間當名稱（截圖-20261126-153012.webp），拖進來或選的檔案用原本的檔名
+   */
+  async function insertImages(files: File[], { pasted = false } = {}): Promise<boolean> {
+    let allInserted = true
     for (const file of files) {
       const placeholder = `![${strings.editor.image.uploadingPlaceholder}](uploading:${crypto.randomUUID()})`
       insertAtCursor(placeholder)
@@ -257,13 +291,19 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, revea
       try {
         const image = await compressImage(file)
         setImageStatus({ kind: 'busy', text: strings.editor.image.uploading(formatBytes(image.blob.size)) })
-        const id = await repo.uploadImage(image.blob)
+        const fileId = await repo.uploadImage(image.blob)
+        const name = imageFileName(pasted ? strings.editor.image.pastedName(timeStamp(new Date())) : file.name, image.format)
+        const node = await repo.createNode({ parentId: folderId, type: 'image', name, content: fileId, rename: true })
+        onImageCreated?.(folderId)
+        const inserted = replacePlaceholder(placeholder, `![](${markdownLinkTarget(node.name)})`)
+        if (!inserted) allInserted = false
         setImageStatus(
-          replacePlaceholder(placeholder, `![](img:${id})`)
+          inserted
             ? { kind: 'done', text: strings.editor.image.inserted }
             : { kind: 'error', text: strings.editor.image.placeholderRemoved },
         )
       } catch (err) {
+        allInserted = false
         replacePlaceholder(placeholder, '')
         setImageStatus({
           kind: 'error',
@@ -271,6 +311,7 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, revea
         })
       }
     }
+    return allInserted
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -283,7 +324,47 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, revea
       setImageStatus({ kind: 'error', text: strings.editor.image.offlinePaste })
       return
     }
-    void insertImages(images)
+    void insertImages(images, { pasted: true })
+  }
+
+  /** 把檔案總管的圖片拖進來：插入從這篇筆記到那張圖片的相對路徑 */
+  async function insertImageLink(nodeId: string) {
+    try {
+      const nodes = await repo.listAll()
+      const index = createPathIndex(nodes)
+      const target = index.byId.get(nodeId)
+      if (target?.type !== 'image') return
+      insertAtCursor(`![](${markdownLinkTarget(relativeImagePath(index, folderId, target))})`)
+    } catch (err) {
+      setImageStatus({ kind: 'error', text: err instanceof RepoError ? err.message : strings.editor.image.failed })
+    }
+  }
+
+  /** 拖進編輯區：檔案總管的圖片插入連結；電腦裡的圖片上傳到這個資料夾再插入（插在游標的位置） */
+  function handleDrop(event: DragEvent<HTMLTextAreaElement>) {
+    if (!handlesDrag(event.dataTransfer.types)) return
+    event.preventDefault()
+    textarea.current?.focus()
+    const nodeId = event.dataTransfer.getData(NODE_DRAG_TYPE)
+    if (nodeId) {
+      void insertImageLink(nodeId)
+      return
+    }
+    const files = Array.from(event.dataTransfer.files)
+    const images = files.filter((file) => file.type.startsWith('image/'))
+    const skipped = files.length - images.length
+    if (images.length === 0) {
+      setImageStatus({ kind: 'error', text: strings.editor.image.notImage })
+      return
+    }
+    if (!cloud) {
+      setImageStatus({ kind: 'error', text: strings.editor.image.offlinePaste })
+      return
+    }
+    // 圖片插入完才說有幾個檔案沒插入，不然訊息會被插入的進度蓋掉
+    void insertImages(images).then((inserted) => {
+      if (inserted && skipped > 0) setImageStatus({ kind: 'error', text: strings.editor.image.skippedFiles(skipped) })
+    })
   }
 
   /** 切換顯示方式。回到只有編輯區時，游標放回編輯框 */
@@ -326,10 +407,10 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, revea
   // 輸入時先讓編輯框更新，預覽稍後跟上，長筆記也不會卡。看不到預覽時不轉換、不取圖片網址
   const showPreview = view !== 'edit'
   const deferred = useDeferredValue(content ?? '')
-  const imageUrls = useImageUrls(deferred, cloud && showPreview)
+  const resolveImage = useImageUrls(deferred, { folderId, version, active: showPreview, online: cloud })
   const previewHtml = useMemo(
-    () => (showPreview ? renderMarkdown(deferred, (id) => imageUrls[id], { offline: !cloud }) : ''),
-    [deferred, imageUrls, cloud, showPreview],
+    () => (showPreview ? renderMarkdown(deferred, { offline: !cloud, resolveImage }) : ''),
+    [deferred, resolveImage, cloud, showPreview],
   )
   const eyeLabel = view === 'edit' ? strings.editor.preview : strings.editor.backToEdit
 
@@ -422,6 +503,13 @@ export default function NoteEditor({ noteId, cloud, onSaved, renderHeader, revea
             onChange={(e) => handleChange(e.target.value)}
             onBlur={() => void save()}
             onPaste={handlePaste}
+            onDragOver={(e) => {
+              // 檔案總管的項目、電腦裡的檔案：允許放下（不然瀏覽器會打開檔案）
+              if (!handlesDrag(e.dataTransfer.types)) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+            }}
+            onDrop={handleDrop}
             onKeyDown={(e) => {
               // Ctrl+S / Cmd+S 立即儲存，不跳出瀏覽器的另存新檔
               if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {

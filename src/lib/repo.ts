@@ -49,10 +49,7 @@ export interface Repo {
    * 目標資料夾裡已經有同名的項目時，名稱加上「 (2)」。不能複製到自己或自己的子孫底下。
    */
   copyNode(id: string, targetParentId: string | null): Promise<NodeMeta>
-  /**
-   * 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片檔 id。
-   * 接著用 createNode({ type: 'image', content: id }) 放進資料夾（舊的筆記裡也有直接寫成 ![](img:<id>) 的）
-   */
+  /** 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片檔 id；接著用 createNode({ type: 'image', content: id }) 放進資料夾 */
   uploadImage(image: Blob): Promise<string>
   /** 取得圖片檔的短效網址（ids 是圖片檔 id）。找不到或沒有權限的圖片回傳 null */
   getImageUrls(ids: string[]): Promise<Record<string, string | null>>

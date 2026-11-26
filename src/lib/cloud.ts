@@ -35,7 +35,7 @@ export interface Cloud {
   updateIfVersion(id: string, changes: RowChanges, version: number): Promise<CloudRow | null>
   /**
    * 圖片項目刪除後，刪掉 Storage 裡的圖片檔；還有其他沒刪除的圖片項目（複製出來的）
-   * 或筆記（舊的 ![](img:<id>) 寫法）用到同一個檔案時保留。回傳是否刪掉了
+   * 用到同一個檔案時保留。回傳是否刪掉了
    */
   removeImageIfUnused(fileId: string): Promise<boolean>
 }
@@ -139,15 +139,6 @@ export function createCloud(client: SupabaseClient, options: { pageSize?: number
         .limit(1)
       if (images.error) throw toRepoError(images.error, images.status)
       if (images.data.length > 0) return false
-      // fileId 已確認是 uuid，放進 like 的樣式裡不會有 % _ 等特殊字元
-      const notes = await nodes()
-        .select('id')
-        .eq('type', 'note')
-        .like('content', `%img:${fileId}%`)
-        .is('deleted_at', null)
-        .limit(1)
-      if (notes.error) throw toRepoError(notes.error, notes.status)
-      if (notes.data.length > 0) return false
 
       const { data } = await client.auth.getSession()
       const userId = data.session?.user.id
