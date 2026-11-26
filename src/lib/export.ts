@@ -4,6 +4,7 @@
 import { buildZip, imageExtension, planExport } from './exportPlan.ts'
 import { extractImageIds } from './markdown.ts'
 import { RepoError, repo } from './repo.ts'
+import { strings } from '../strings.ts'
 
 export type ExportProgress =
   | { stage: 'notes' }
@@ -30,7 +31,7 @@ function todayStamp(): string {
 }
 
 export async function exportAll(onProgress: (progress: ExportProgress) => void): Promise<ExportResult> {
-  if (!navigator.onLine) throw new RepoError('network', '離線時無法匯出，請連線後再試。')
+  if (!navigator.onLine) throw new RepoError('network', strings.errors.exportOffline)
 
   onProgress({ stage: 'notes' })
   const nodes = await repo.listAll()
@@ -61,7 +62,7 @@ export async function exportAll(onProgress: (progress: ExportProgress) => void):
 
   return {
     blob,
-    fileName: `MDrawer-${todayStamp()}.zip`,
+    fileName: strings.export.fileName(todayStamp()),
     folderCount: plan.folders.length,
     noteCount: plan.notes.length,
     imageCount: images.size,

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { RepoError, normalizeName, validateName } from '../lib/repo.ts'
 import Modal from './Modal.tsx'
+import { strings } from '../strings.ts'
 
 interface Props {
   title: string
@@ -32,7 +33,7 @@ export default function NameDialog({ title, hint, initialName = '', submitLabel,
     try {
       await onSubmit(normalized)
     } catch (err) {
-      setError(err instanceof RepoError ? err.message : '發生未預期的錯誤，請再試一次。')
+      setError(err instanceof RepoError ? err.message : strings.common.unexpectedTryAgain)
       setBusy(false)
     }
   }
@@ -41,7 +42,7 @@ export default function NameDialog({ title, hint, initialName = '', submitLabel,
     <Modal title={title} busy={busy} onClose={onClose}>
       <form onSubmit={handleSubmit} className="modal-body">
         <label>
-          名稱
+          {strings.workspace.dialogs.nameLabel}
           <input
             type="text"
             value={name}
@@ -60,10 +61,10 @@ export default function NameDialog({ title, hint, initialName = '', submitLabel,
         )}
         <div className="modal-actions">
           <button type="button" className="secondary" onClick={onClose} disabled={busy}>
-            取消
+            {strings.common.cancel}
           </button>
           <button type="submit" disabled={busy}>
-            {busy ? '處理中…' : submitLabel}
+            {busy ? strings.common.processing : submitLabel}
           </button>
         </div>
       </form>

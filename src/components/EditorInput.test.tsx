@@ -2,7 +2,8 @@
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import EditorInput, { lineAt } from './EditorInput.tsx'
+import { lineAt } from '../lib/lines.ts'
+import EditorInput from './EditorInput.tsx'
 
 // 讓 React 知道這是測試環境，act() 會等畫面更新完
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true

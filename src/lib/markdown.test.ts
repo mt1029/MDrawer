@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { extractImageIds, renderMarkdown, type ImageResolver, type RenderOptions } from './markdown.ts'
+import { strings } from '../strings.ts'
 
 /** 把輸出的 HTML 解析成 DOM（不會執行任何 script），方便檢查 */
 function render(source: string, resolveImage?: ImageResolver, options?: RenderOptions): HTMLElement {
@@ -159,7 +160,7 @@ describe('貼圖：img:<id> 在 DOMPurify 之前換成網址', () => {
   it('離線時還沒有網址的圖片顯示「離線時無法載入圖片」（spec 第 6 節 L1）', () => {
     const body = render(`![說明](img:${ID})`, () => undefined, { offline: true })
     expect(body.querySelector('img')).toBeNull()
-    expect(body.querySelector('.img-offline')?.textContent).toBe('離線時無法載入圖片')
+    expect(body.querySelector('.img-offline')?.textContent).toBe(strings.markdown.offlineImage)
   })
 
   it('離線時已經有網址的圖片照常顯示，不存在的仍標上 img-missing', () => {

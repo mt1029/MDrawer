@@ -27,3 +27,7 @@ npm run dev                  # http://localhost:5173
 - PWA 安裝、離線外殼與換圖示：[docs/deploy.md](docs/deploy.md) 最後一節
 - ZIP 匯出的內容與驗證：[docs/export.md](docs/export.md)
 - 離線與同步（L1、L2：離線讀寫、衝突處理、登出保護）的運作與驗證：[docs/offline.md](docs/offline.md)
+
+## 改文案
+
+畫面上的文字（按鈕、提示、對話框、狀態、錯誤訊息、給螢幕閱讀器的說明）都在 [`src/strings.ts`](src/strings.ts)，依畫面分組。改文案只要改這個檔案，怎麼改、哪些文字不在這裡寫在檔案開頭。

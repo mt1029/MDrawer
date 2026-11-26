@@ -1,6 +1,8 @@
 // 貼圖壓縮：用 Canvas 縮小並轉成 WebP。
 // Safari（含所有 iPhone 瀏覽器）的 Canvas 無法輸出 WebP，會默默改成 PNG，所以改存 JPEG。
 
+import { strings } from '../strings.ts'
+
 export type ImageFormat = 'image/webp' | 'image/jpeg'
 
 export interface CompressedImage {
@@ -24,7 +26,7 @@ const SHRINK_STEPS = 4
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new ImageError('圖片轉檔失敗。'))), type, quality)
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new ImageError(strings.errors.imageProcessing.convertFailed))), type, quality)
   })
 }
 
@@ -44,13 +46,13 @@ export function canEncodeWebp(): Promise<boolean> {
 
 /** 縮小並轉成 WebP（不支援時用 JPEG），確保不超過 2 MB */
 export async function compressImage(file: Blob): Promise<CompressedImage> {
-  if (!file.type.startsWith('image/')) throw new ImageError('只能插入圖片檔。')
+  if (!file.type.startsWith('image/')) throw new ImageError(strings.errors.imageProcessing.notImage)
 
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(file)
   } catch {
-    throw new ImageError('無法讀取這張圖片，這個瀏覽器可能不支援它的格式。')
+    throw new ImageError(strings.errors.imageProcessing.unreadable)
   }
 
   try {
@@ -64,7 +66,7 @@ export async function compressImage(file: Blob): Promise<CompressedImage> {
       canvas.width = width
       canvas.height = height
       const context = canvas.getContext('2d')
-      if (!context) throw new ImageError('這個瀏覽器無法處理圖片。')
+      if (!context) throw new ImageError(strings.errors.imageProcessing.noCanvas)
       if (format === 'image/jpeg') {
         // JPEG 沒有透明度，先鋪白底，避免透明處變成黑色
         context.fillStyle = '#ffffff'
@@ -74,14 +76,14 @@ export async function compressImage(file: Blob): Promise<CompressedImage> {
 
       for (const quality of QUALITIES) {
         const blob = await canvasToBlob(canvas, format, quality)
-        if (blob.type !== format) throw new ImageError('圖片轉檔失敗。')
+        if (blob.type !== format) throw new ImageError(strings.errors.imageProcessing.convertFailed)
         if (blob.size <= MAX_IMAGE_BYTES) {
           return { blob, format, width, height, originalBytes: file.size }
         }
       }
       scale *= 0.75
     }
-    throw new ImageError('圖片太大，壓縮後仍超過 2 MB。')
+    throw new ImageError(strings.errors.imageProcessing.tooLarge)
   } finally {
     bitmap.close()
   }

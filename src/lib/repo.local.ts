@@ -23,6 +23,7 @@ import {
 } from './localDb.ts'
 import { RepoError, normalizeName, sortNodes, validateName, type NodeMeta, type TreeNode } from './nodes.ts'
 import type { Repo } from './repo.ts'
+import { strings } from '../strings.ts'
 
 export interface LocalRepoOptions {
   /** 每次寫入本機之後呼叫（排程推送、更新待同步數量） */
@@ -30,8 +31,8 @@ export interface LocalRepoOptions {
   now?: () => Date
 }
 
-const DUPLICATE_MESSAGE = '這個資料夾裡已經有相同名稱的項目（不分大小寫）。'
-const NOT_FOUND_MESSAGE = '找不到這個項目，可能已經被刪除。請重新整理後再試。'
+const DUPLICATE_MESSAGE = strings.errors.nodes.duplicateName
+const NOT_FOUND_MESSAGE = strings.errors.nodes.notFound
 
 function checkName(raw: string): string {
   const name = normalizeName(raw)
@@ -70,8 +71,8 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
   async function parentKeyOf(tx: WriteTx, parentId: string | null): Promise<string> {
     if (!parentId) return ROOT_KEY
     const parent = await tx.objectStore('nodes').get(parentId)
-    if (!parent) throw new RepoError('not_found', '上層資料夾不存在，可能已經被刪除。請重新整理後再試。')
-    if (parent.type !== 'folder') throw new RepoError('invalid_move', '只能放在資料夾裡。')
+    if (!parent) throw new RepoError('not_found', strings.errors.nodes.parentNotFound)
+    if (parent.type !== 'folder') throw new RepoError('invalid_move', strings.errors.nodes.onlyInFolder)
     return parentId
   }
 
@@ -145,7 +146,7 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
       if ('conflictCopy' in result) {
         throw new RepoError(
           'conflict',
-          `這篇筆記剛同步到其他裝置的修改。為了不蓋掉它，你這次的內容另存為「${result.conflictCopy}」。`,
+          strings.errors.nodes.editConflict(result.conflictCopy),
         )
       }
       return result.node
@@ -160,19 +161,19 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
         // 從目標往上找到根目錄，途中不能遇到自己（不能移到自己或自己的子孫底下）
         const visited = new Set<string>()
         for (let current = newParentId, isTarget = true; current; isTarget = false) {
-          if (current === id) throw new RepoError('invalid_move', '不能移到自己或自己底下的資料夾。')
-          if (visited.has(current)) throw new RepoError('invalid_move', '資料夾結構出現循環，請重新整理後再試。')
+          if (current === id) throw new RepoError('invalid_move', strings.errors.nodes.moveIntoSelf)
+          if (visited.has(current)) throw new RepoError('invalid_move', strings.errors.nodes.cycle)
           visited.add(current)
           const row = await nodes.get(current)
-          if (!row) throw new RepoError('not_found', '目標資料夾不存在，可能已經被刪除。')
-          if (isTarget && row.type !== 'folder') throw new RepoError('invalid_move', '只能移到資料夾裡。')
+          if (!row) throw new RepoError('not_found', strings.errors.nodes.targetNotFound)
+          if (isTarget && row.type !== 'folder') throw new RepoError('invalid_move', strings.errors.nodes.moveOnlyToFolder)
           current = row.parent_id
         }
 
         if (node.parent_id === newParentId) return toMeta(node)
         const parentKey = newParentId ?? ROOT_KEY
         if (await nameTaken(tx, parentKey, node.name, id)) {
-          throw new RepoError('duplicate_name', '目標資料夾裡已經有相同名稱的項目（不分大小寫）。')
+          throw new RepoError('duplicate_name', strings.errors.nodes.duplicateNameInTarget)
         }
         const next = { ...node, parent_id: newParentId, parent_key: parentKey, updated_at: now().toISOString() }
         await nodes.put(next)
@@ -229,7 +230,7 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
 
         // 資料夾不能複製到自己或自己的子孫底下（會一直複製下去）
         for (let current = targetParentId; current; current = (await nodes.get(current))?.parent_id ?? null) {
-          if (current === id) throw new RepoError('invalid_move', '不能貼到自己或自己底下的資料夾。')
+          if (current === id) throw new RepoError('invalid_move', strings.errors.nodes.pasteIntoSelf)
         }
 
         // 先讀出整個子樹，再建立副本：父先子後，每個項目換成新的 id
@@ -262,8 +263,8 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
     },
 
     // 圖片只存在雲端：連線時由 mirror.ts 改用線上版，這裡只處理離線
-    uploadImage: () => offline('離線時無法上傳圖片。'),
-    getImageUrls: () => offline('離線時無法載入圖片。'),
-    downloadImage: () => offline('離線時無法下載圖片。'),
+    uploadImage: () => offline(strings.errors.images.offlineUpload),
+    getImageUrls: () => offline(strings.errors.images.offlineLoad),
+    downloadImage: () => offline(strings.errors.images.offlineDownload),
   }
 }

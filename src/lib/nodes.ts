@@ -1,5 +1,7 @@
 // nodes 資料的型別、錯誤與名稱規則。repo.ts 與各個實作共用。
 
+import { strings } from '../strings.ts'
+
 export type NodeType = 'folder' | 'note'
 
 /** 樹狀清單需要的欄位（不含筆記內容） */
@@ -58,11 +60,11 @@ export function normalizeName(raw: string): string {
 
 /** 與資料庫的 check 限制相同。回傳錯誤訊息，沒問題時回傳 null */
 export function validateName(name: string): string | null {
-  if (name.length === 0) return '名稱不能是空的。'
+  if (name.length === 0) return strings.errors.names.empty
   // 用 code point 計算長度，與 PostgreSQL 的 char_length 一致
-  if ([...name].length > MAX_NAME_LENGTH) return `名稱最多 ${MAX_NAME_LENGTH} 個字。`
-  if (/[/\\]/.test(name)) return '名稱不能包含 / 或 \\。'
-  if (name.includes('..')) return '名稱不能包含連續兩個點（..）。'
+  if ([...name].length > MAX_NAME_LENGTH) return strings.errors.names.tooLong(MAX_NAME_LENGTH)
+  if (/[/\\]/.test(name)) return strings.errors.names.slash
+  if (name.includes('..')) return strings.errors.names.dots
   return null
 }
 
@@ -84,6 +86,6 @@ export function conflictCopyName(name: string, date: Date): string {
   const stamp =
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
     `${pad(date.getHours())}:${pad(date.getMinutes())}`
-  const suffix = `（衝突副本 ${stamp}）`
+  const suffix = strings.errors.names.conflictCopySuffix(stamp)
   return truncate(name, MAX_NAME_LENGTH - suffix.length) + suffix
 }

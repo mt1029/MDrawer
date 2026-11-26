@@ -8,6 +8,15 @@ import { createDbHandle } from './localDb.ts'
 import { RepoError } from './nodes.ts'
 import { createLocalRepo } from './repo.local.ts'
 import { syncOnce } from './sync.ts'
+import { strings } from '../strings.ts'
+
+/** 衝突副本的名稱：原名稱接 strings 裡的後綴，時間是「年-月-日 時:分」。改了文案測試也跟著改 */
+function conflictCopyPattern(name: string): RegExp {
+  const marker = '\u0000'
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const [before, after] = strings.errors.names.conflictCopySuffix(marker).split(marker)
+  return new RegExp(`^${escape(name + before)}\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}${escape(after)}$`)
+}
 
 function fakeCloud() {
   const rows = new Map<string, CloudRow>()
@@ -358,7 +367,7 @@ describe('衝突處理（spec 第 6 節）', () => {
     const report = await b.sync()
 
     expect(report.conflicts).toHaveLength(1)
-    expect(report.conflicts[0]).toMatch(/^筆記（衝突副本 \d{4}-\d{2}-\d{2} \d{2}:\d{2}）$/)
+    expect(report.conflicts[0]).toMatch(conflictCopyPattern('筆記'))
     expect(report.again).toBe(true)
     expect(fake.rows.get(note.id)?.content).toBe('A 的版本')
     expect(await b.content(note.id)).toBe('A 的版本') // 原筆記換成雲端版本
@@ -446,7 +455,7 @@ describe('衝突處理（spec 第 6 節）', () => {
     await a.sync() // 拉到 B 的修改，但 A 的編輯器還停在「原本」
     await expectRepoError(a.repo.updateNode(note.id, { content: 'A 打的字', baseContent: '原本' }), 'conflict')
     expect(await a.content(note.id)).toBe('B 改的')
-    const copies = (await a.repo.listChildren(folder.id)).filter((n) => n.name.includes('衝突副本'))
+    const copies = (await a.repo.listChildren(folder.id)).filter((n) => conflictCopyPattern(note.name).test(n.name))
     expect(copies).toHaveLength(1)
     expect(await a.content(copies[0].id)).toBe('A 打的字')
   })

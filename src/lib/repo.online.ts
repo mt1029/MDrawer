@@ -14,6 +14,7 @@ import {
 } from './nodes.ts'
 import type { CreateNodeInput, Repo, UpdateNodeInput } from './repo.ts'
 import { supabase } from './supabase.ts'
+import { strings } from '../strings.ts'
 
 const META_COLUMNS = 'id, parent_id, type, name, version, created_at, updated_at'
 const FULL_COLUMNS = `${META_COLUMNS}, content`
@@ -106,10 +107,10 @@ async function assertValidMoveTarget(id: string, targetId: string): Promise<void
 
   while (currentId) {
     if (currentId === id) {
-      throw new RepoError('invalid_move', '不能移到自己或自己底下的資料夾。')
+      throw new RepoError('invalid_move', strings.errors.nodes.moveIntoSelf)
     }
     if (visited.has(currentId)) {
-      throw new RepoError('invalid_move', '資料夾結構出現循環，請重新整理後再試。')
+      throw new RepoError('invalid_move', strings.errors.nodes.cycle)
     }
     visited.add(currentId)
     const { data, error, status } = await supabase
@@ -119,11 +120,11 @@ async function assertValidMoveTarget(id: string, targetId: string): Promise<void
       .is('deleted_at', null)
       .maybeSingle()
     if (error) throw toRepoError(error, status)
-    if (!data) throw new RepoError('not_found', '目標資料夾不存在，可能已經被刪除。')
+    if (!data) throw new RepoError('not_found', strings.errors.nodes.targetNotFound)
 
     const row = data as { parent_id: string | null; type: NodeType }
     if (isTarget && row.type !== 'folder') {
-      throw new RepoError('invalid_move', '只能移到資料夾裡。')
+      throw new RepoError('invalid_move', strings.errors.nodes.moveOnlyToFolder)
     }
     isTarget = false
     currentId = row.parent_id
@@ -143,7 +144,7 @@ async function moveNode(id: string, newParentId: string | null): Promise<NodeMet
   if (error) {
     const repoError = toRepoError(error, status)
     if (repoError.kind === 'duplicate_name') {
-      throw new RepoError('duplicate_name', '目標資料夾裡已經有相同名稱的項目（不分大小寫）。')
+      throw new RepoError('duplicate_name', strings.errors.nodes.duplicateNameInTarget)
     }
     throw repoError
   }
@@ -192,11 +193,11 @@ async function deleteNode(id: string): Promise<void> {
 
 async function copyNode(id: string, targetParentId: string | null): Promise<NodeMeta> {
   const source = await getNode(id)
-  if (!source) throw new RepoError('not_found', '找不到這個項目，可能已經被刪除。請重新整理後再試。')
+  if (!source) throw new RepoError('not_found', strings.errors.nodes.notFound)
   if (targetParentId) {
     // 從目標往上找，不能遇到來源（不能複製到自己底下）
     for (let current: string | null = targetParentId; current; ) {
-      if (current === id) throw new RepoError('invalid_move', '不能貼到自己或自己底下的資料夾。')
+      if (current === id) throw new RepoError('invalid_move', strings.errors.nodes.pasteIntoSelf)
       current = (await getNode(current))?.parent_id ?? null
     }
   }
@@ -239,31 +240,31 @@ const signedUrlCache = new Map<string, { url: string; expiresAt: number }>()
 async function currentUserId(): Promise<string> {
   const { data } = await supabase.auth.getSession()
   const id = data.session?.user.id
-  if (!id) throw new RepoError('unknown', '登入狀態已失效，請重新登入。')
+  if (!id) throw new RepoError('unknown', strings.errors.sessionExpired)
   return id
 }
 
 function toUploadError(error: { message: string; status?: number; statusCode?: string }): RepoError {
   const message = error.message.toLowerCase()
   const status = error.status ?? Number(error.statusCode)
-  if (!status) return new RepoError('network', '無法連線到伺服器，圖片沒有上傳。')
+  if (!status) return new RepoError('network', strings.errors.images.uploadNetwork)
   if (status === 413 || message.includes('size')) {
-    return new RepoError('unknown', '圖片超過 2 MB 上限。')
+    return new RepoError('unknown', strings.errors.images.tooLarge)
   }
   if (status === 415 || message.includes('mime')) {
-    return new RepoError('unknown', '圖片格式不被接受（只接受 WebP、JPEG）。')
+    return new RepoError('unknown', strings.errors.images.badFormat)
   }
   if (message.includes('bucket not found')) {
-    return new RepoError('unknown', '找不到 images bucket，請先在 Supabase 執行建立圖片儲存的 SQL。')
+    return new RepoError('unknown', strings.errors.images.noBucket)
   }
   if (status === 403 || message.includes('row-level security') || message.includes('unauthorized')) {
-    return new RepoError('unknown', '沒有權限上傳圖片，請重新登入後再試。')
+    return new RepoError('unknown', strings.errors.images.noPermission)
   }
-  return new RepoError('unknown', `圖片上傳失敗：${error.message}`)
+  return new RepoError('unknown', strings.errors.images.uploadFailed(error.message))
 }
 
 async function uploadImage(image: Blob): Promise<string> {
-  if (!navigator.onLine) throw new RepoError('network', '離線時無法上傳圖片。')
+  if (!navigator.onLine) throw new RepoError('network', strings.errors.images.offlineUpload)
   const userId = await currentUserId()
   const id = crypto.randomUUID()
   const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(`${userId}/${id}`, image, {
@@ -293,7 +294,7 @@ async function getImageUrls(ids: string[]): Promise<Record<string, string | null
   const paths = missing.map((id) => `${userId}/${id}`)
   const { data, error } = await supabase.storage.from(IMAGE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL)
   if (error) {
-    throw new RepoError(error.status ? 'unknown' : 'network', '無法取得圖片網址，請確認網路後重新整理。')
+    throw new RepoError(error.status ? 'unknown' : 'network', strings.errors.images.urlFailed)
   }
   // 回傳順序與傳入的路徑相同
   missing.forEach((id, index) => {
@@ -313,7 +314,7 @@ async function downloadImage(id: string): Promise<Blob> {
   const { data, error } = await supabase.storage.from(IMAGE_BUCKET).download(`${userId}/${id}`)
   if (error) {
     const status = (error as { status?: number }).status
-    throw new RepoError(status ? 'not_found' : 'network', status ? '找不到這張圖片。' : '無法連線到伺服器，圖片沒有下載。')
+    throw new RepoError(status ? 'not_found' : 'network', status ? strings.errors.images.notFound : strings.errors.images.downloadNetwork)
   }
   return data
 }

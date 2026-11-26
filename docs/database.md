@@ -105,12 +105,12 @@ SQL 在 [supabase/migrations/20261123010000_create_images_bucket.sql](../supabas
 
 | # | 操作 | 預期結果 |
 | --- | --- | --- |
-| 1 | 用 A 帳號開一篇筆記，截圖後在編輯區按 Ctrl+V（Mac 為 Cmd+V） | 編輯區插入 `![](img:…)`，上方顯示「原始 … → 壓縮後 …」，右邊預覽顯示圖片 |
+| 1 | 用 A 帳號開一篇筆記，截圖後在編輯區按 Ctrl+V（Mac 為 Cmd+V） | 上方依序顯示「正在壓縮圖片...（原始大小）」「上傳中...（壓縮後大小）」「已插入圖片」，編輯區插入 `![](img:…)`，預覽顯示圖片 |
 | 2 | 按「插入圖片」選一張手機或相機照片 | 同上，大圖會被縮小 |
 | 3 | 重新整理頁面 | 圖片仍正常顯示 |
 | 4 | Storage → images → A 的 id 資料夾 | 看得到剛上傳的檔案，類型為 `image/webp`（Safari 為 `image/jpeg`） |
 | 5 | 複製 A 筆記裡的 `![](img:…)`，貼到 B 帳號的筆記 | B 的預覽只顯示虛線框，看不到圖片 |
-| 6 | 用 Safari 貼圖 | 正常插入，狀態列顯示 JPEG |
+| 6 | 用 Safari 貼圖 | 正常插入；照第 4 項看 Storage，類型為 `image/jpeg` |
 | 7 | 在筆記裡寫 `![](https://example.com/a.png)`，到 Vercel 網址看預覽 | 圖片不顯示，Console 有 Content-Security-Policy 的訊息（本機 `npm run dev` 沒有 CSP，所以會顯示） |
 
 ## 常見問題

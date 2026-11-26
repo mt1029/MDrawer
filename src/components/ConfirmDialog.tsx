@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { RepoError } from '../lib/repo.ts'
 import Modal from './Modal.tsx'
+import { strings } from '../strings.ts'
 
 interface Props {
   title: string
@@ -21,7 +22,7 @@ export default function ConfirmDialog({ title, children, confirmLabel, danger = 
     try {
       await onConfirm()
     } catch (err) {
-      setError(err instanceof RepoError ? err.message : '發生未預期的錯誤，請再試一次。')
+      setError(err instanceof RepoError ? err.message : strings.common.unexpectedTryAgain)
       setBusy(false)
     }
   }
@@ -37,10 +38,10 @@ export default function ConfirmDialog({ title, children, confirmLabel, danger = 
         )}
         <div className="modal-actions">
           <button type="button" className="secondary" onClick={onClose} disabled={busy}>
-            取消
+            {strings.common.cancel}
           </button>
           <button type="button" className={danger ? 'danger' : undefined} onClick={handleConfirm} disabled={busy}>
-            {busy ? '處理中…' : confirmLabel}
+            {busy ? strings.common.processing : confirmLabel}
           </button>
         </div>
       </div>

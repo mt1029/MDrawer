@@ -11,6 +11,7 @@ import { RepoError } from './nodes.ts'
 import { createLocalRepo } from './repo.local.ts'
 import type { Repo } from './repo.ts'
 import { syncOnce } from './sync.ts'
+import { strings } from '../strings.ts'
 
 export interface MirrorState {
   /** 已經讀過本機資料庫 */
@@ -71,7 +72,7 @@ export interface Mirror {
   subscribe(listener: () => void): () => void
 }
 
-const NO_COPY_MESSAGE = '這台裝置還沒有你的筆記，連線後會自動下載。'
+const NO_COPY_MESSAGE = strings.errors.sync.noLocalCopy
 // 一次同步之後，最多再接著跑幾輪（衝突副本、移到根目錄等新產生的修改）
 const MAX_ROUNDS = 5
 
@@ -83,9 +84,9 @@ function browserLock<T>(task: () => Promise<T>): Promise<T> {
 
 function errorMessage(err: unknown): string {
   if (err instanceof RepoError) {
-    return err.kind === 'network' ? '連不到伺服器，修改會在恢復連線後同步。' : err.message
+    return err.kind === 'network' ? strings.errors.sync.offline : err.message
   }
-  return '這個瀏覽器無法使用本機儲存（可能封鎖了網站資料或空間不足）。'
+  return strings.errors.sync.storageUnavailable
 }
 
 export function createMirror(options: MirrorOptions): Mirror {

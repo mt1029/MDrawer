@@ -3,17 +3,18 @@ import { exportAll, saveFile, type ExportProgress, type ExportResult } from '../
 import { formatBytes } from '../lib/image.ts'
 import { RepoError } from '../lib/repo.ts'
 import Modal from './Modal.tsx'
+import { strings } from '../strings.ts'
 
 type Phase = 'idle' | 'running' | 'done' | 'error'
 
 function describe(progress: ExportProgress): string {
   switch (progress.stage) {
     case 'notes':
-      return '讀取資料夾與筆記…'
+      return strings.export.readingNotes
     case 'images':
-      return progress.total === 0 ? '沒有圖片需要下載…' : `下載圖片 ${progress.done} / ${progress.total}…`
+      return progress.total === 0 ? strings.export.noImages : strings.export.downloadingImages(progress.done, progress.total)
     case 'zip':
-      return '打包成 ZIP…'
+      return strings.export.zipping
   }
 }
 
@@ -33,7 +34,7 @@ export default function ExportDialog({ onClose }: { onClose: () => void }) {
       setResult(exported)
       setPhase('done')
     } catch (err) {
-      setError(err instanceof RepoError ? err.message : '匯出失敗，請再試一次。')
+      setError(err instanceof RepoError ? err.message : strings.export.failed)
       setPhase('error')
     }
   }
@@ -41,14 +42,9 @@ export default function ExportDialog({ onClose }: { onClose: () => void }) {
   const running = phase === 'running'
 
   return (
-    <Modal title="匯出 ZIP" busy={running} onClose={onClose}>
+    <Modal title={strings.export.title} busy={running} onClose={onClose}>
       <div className="modal-body">
-        {phase === 'idle' && (
-          <p>
-            把所有資料夾、筆記與圖片照原本的目錄結構打包成 ZIP 下載。解壓後是一般的 .md
-            檔與圖片，用任何 Markdown 編輯器都能直接開啟。
-          </p>
-        )}
+        {phase === 'idle' && <p>{strings.export.intro}</p>}
 
         {running && (
           <p className="modal-hint" role="status">
@@ -59,12 +55,17 @@ export default function ExportDialog({ onClose }: { onClose: () => void }) {
         {phase === 'done' && result && (
           <>
             <p role="status">
-              已下載 {result.fileName}（{formatBytes(result.blob.size)}）：{result.folderCount} 個資料夾、
-              {result.noteCount} 篇筆記、{result.imageCount} 張圖片。
+              {strings.export.done(
+                result.fileName,
+                formatBytes(result.blob.size),
+                result.folderCount,
+                result.noteCount,
+                result.imageCount,
+              )}
             </p>
             {result.missingImages.length > 0 && (
               <p className="message error">
-                有 {result.missingImages.length} 張圖片找不到，沒有放進 ZIP。筆記裡仍保留它們的連結。
+                {strings.export.missingImages(result.missingImages.length)}
               </p>
             )}
           </>
@@ -80,19 +81,19 @@ export default function ExportDialog({ onClose }: { onClose: () => void }) {
           {phase === 'done' && result ? (
             <>
               <button type="button" className="secondary" onClick={() => saveFile(result.blob, result.fileName)}>
-                再下載一次
+                {strings.export.downloadAgain}
               </button>
               <button type="button" onClick={onClose}>
-                完成
+                {strings.export.finish}
               </button>
             </>
           ) : (
             <>
               <button type="button" className="secondary" onClick={onClose} disabled={running}>
-                取消
+                {strings.common.cancel}
               </button>
               <button type="button" onClick={start} disabled={running}>
-                {running ? '匯出中…' : phase === 'error' ? '重試' : '開始匯出'}
+                {running ? strings.export.running : phase === 'error' ? strings.common.retry : strings.export.start}
               </button>
             </>
           )}

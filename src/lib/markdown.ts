@@ -5,6 +5,7 @@
 
 import DOMPurify from 'dompurify'
 import MarkdownIt from 'markdown-it'
+import { strings } from '../strings.ts'
 
 const md = new MarkdownIt({
   html: false, // 不允許原始 HTML（CLAUDE.md 規定）
@@ -37,8 +38,8 @@ type RenderEnv = {
   offline?: boolean
 }
 
-// 固定的文字，不含筆記內容，不會造成 XSS；之後仍會經過 DOMPurify
-const OFFLINE_IMAGE = '<span class="img-offline">離線時無法載入圖片</span>'
+// 文字來自 strings.ts，不含筆記內容；仍先跳脫成純文字，之後也會再經過 DOMPurify
+const OFFLINE_IMAGE = `<span class="img-offline">${md.utils.escapeHtml(strings.markdown.offlineImage)}</span>`
 
 // 在 markdown-it 產生 <img> 時就把 img:<id> 換成網址。
 // 這一步一定要在 DOMPurify 之前，否則 DOMPurify 會把不認得的 img: 網址移除（spec 第 5 節）。

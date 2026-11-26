@@ -9,14 +9,13 @@ import { supabase } from './lib/supabase.ts'
 import { useMirror } from './lib/useMirror.ts'
 import { useOnline } from './lib/useOnline.ts'
 import { useSession } from './lib/useSession.ts'
+import { strings } from './strings.ts'
 
 /** 不能連到雲端時的提示：修改先存在本機，之後自動同步 */
 function LocalOnlyBanner({ online }: { online: boolean }) {
   return (
     <p className="offline-banner" role="status">
-      {online
-        ? '正在確認登入狀態：修改會先存在這台裝置，確認後自動同步。持續很久的話請重新整理頁面。'
-        : '離線中：修改會先存在這台裝置，恢復連線後自動同步。圖片要連線才能插入與顯示。'}
+      {online ? strings.app.checkingSession : strings.app.offline}
     </p>
   )
 }
@@ -62,23 +61,21 @@ export default function App() {
   }, [active, signedIn, online])
 
   if (session === undefined || !local.ready) {
-    return <p className="loading">載入中…</p>
+    return <p className="loading">{strings.common.loading}</p>
   }
 
   if (othersUnsynced && owner) {
     return (
       <main className="auth">
         <div className="card">
-          <h2>這台裝置有其他帳號的資料</h2>
-          <p>
-            {owner.email} 在這台裝置上有 {local.pendingCount} 項修改還沒同步到雲端。用目前的帳號繼續，會刪除這些修改。
-          </p>
+          <h2>{strings.app.otherAccount.title}</h2>
+          <p>{strings.app.otherAccount.body(owner.email, local.pendingCount)}</p>
           <div className="modal-actions">
             <button type="button" className="secondary" onClick={() => void supabase.auth.signOut({ scope: 'local' })}>
-              改用 {owner.email} 登入
+              {strings.app.otherAccount.useOther(owner.email)}
             </button>
             <button type="button" className="danger" onClick={() => void mirror.signOut()}>
-              刪除這些修改並繼續
+              {strings.app.otherAccount.discard}
             </button>
           </div>
         </div>
@@ -91,12 +88,12 @@ export default function App() {
       <>
         {!online && (
           <p className="offline-banner" role="status">
-            目前離線，登入與註冊需要網路。
+            {strings.app.signInOffline}
           </p>
         )}
         {owner?.signedOut && (
           <p className="offline-banner" role="status">
-            登入已失效，請重新登入。這台裝置上有 {owner.email} 的 {local.pendingCount} 項修改還沒同步，用同一個帳號登入後會自動同步。
+            {strings.app.sessionExpired(owner.email, local.pendingCount)}
           </p>
         )}
         <AuthForm />
@@ -106,7 +103,7 @@ export default function App() {
 
   // 等確認本機資料是這個帳號的之後才顯示（避免讀到別人的資料）
   if (!active && !signingOut) {
-    return <p className="loading">載入中…</p>
+    return <p className="loading">{strings.common.loading}</p>
   }
 
   const cloud = online && signedIn
@@ -143,7 +140,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <span className="brand">MDrawer</span>
+        <span className="brand">{strings.common.appName}</span>
         <AccountMenu
           email={user.email}
           canExport={cloud && hasLocalCopy}
@@ -158,35 +155,35 @@ export default function App() {
       ) : (
         <main className="detail first-sync">
           {!cloud ? (
-            <p className="detail-placeholder">這台裝置還沒有你的筆記。連線後會自動下載，之後離線也能使用。</p>
+            <p className="detail-placeholder">{strings.app.firstSync.offline}</p>
           ) : local.syncError ? (
             <>
               <p className="message error" role="alert">
-                下載筆記失敗：{local.syncError}
+                {strings.app.firstSync.failed(local.syncError)}
               </p>
               <p>
                 <button type="button" onClick={() => void mirror.sync()}>
-                  重試
+                  {strings.common.retry}
                 </button>
               </p>
             </>
           ) : (
-            <p className="detail-placeholder">正在下載你的筆記…</p>
+            <p className="detail-placeholder">{strings.app.firstSync.downloading}</p>
           )}
         </main>
       )}
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
       {unsyncedOnSignOut !== null && (
         <ConfirmDialog
-          title="還有修改沒有同步"
-          confirmLabel="仍要登出"
+          title={strings.app.signOutUnsynced.title}
+          confirmLabel={strings.app.signOutUnsynced.confirm}
           danger
           onConfirm={finishSignOut}
           onClose={() => setUnsyncedOnSignOut(null)}
         >
           <p>
-            有 {unsyncedOnSignOut} 項修改還沒同步到雲端。登出會清除這台裝置上的資料，這些修改會遺失。
-            {online ? '' : '目前離線，建議恢復連線、等同步完成後再登出。'}
+            {strings.app.signOutUnsynced.body(unsyncedOnSignOut)}
+            {online ? '' : strings.app.signOutUnsynced.offlineHint}
           </p>
         </ConfirmDialog>
       )}

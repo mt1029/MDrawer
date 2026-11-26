@@ -901,14 +901,26 @@ button.link {
 
 /* ── Markdown 預覽 ─────────────────────────────────────── */
 
+/*
+ * 四周留白跟編輯框一樣（1rem）。第一個元素的上邊界、最後一個的下邊界拿掉，
+ * 不然標題（上邊界 1.3em × 字級）或段落（1em）會再往下推，預覽的第一行比編輯區低很多
+ */
 .markdown {
   min-width: 0;
   overflow: auto;
-  padding: 0.25rem 1rem;
+  padding: 1rem;
   border: 0.5px solid var(--hairline);
   background: var(--bg);
   line-height: 1.7;
   overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
 }
 
 .markdown :is(h1, h2, h3, h4, h5, h6) {

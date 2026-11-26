@@ -1,6 +1,7 @@
 import type { CSSProperties, DragEvent, HTMLAttributes, KeyboardEvent } from 'react'
 import { formatTime } from '../lib/format.ts'
 import type { NodeMeta } from '../lib/repo.ts'
+import { strings } from '../strings.ts'
 import { ChevronIcon, FolderIcon, NoteIcon } from './icons.tsx'
 
 interface Props {
@@ -51,14 +52,14 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
   if (!items) {
     return (
       <p className="tree-note" style={depthStyle(depth)}>
-        載入中…
+        {strings.common.loading}
       </p>
     )
   }
   if (items.length === 0) {
     return (
       <p className="tree-note" style={depthStyle(depth)}>
-        {parentId === null ? '還沒有任何資料夾或筆記。' : '（空資料夾）'}
+        {parentId === null ? strings.workspace.treeEmpty : strings.workspace.folderEmpty}
       </p>
     )
   }
@@ -94,7 +95,7 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
                   type="button"
                   className="tree-toggle"
                   tabIndex={-1}
-                  aria-label={`${isOpen ? '收合' : '展開'}「${node.name}」`}
+                  aria-label={isOpen ? strings.workspace.collapse(node.name) : strings.workspace.expand(node.name)}
                   aria-expanded={isOpen}
                   onClick={() => props.onToggle(node)}
                 >
@@ -109,7 +110,7 @@ function TreeLevel({ parentId, depth, ...props }: Props & { parentId: string | n
                 aria-current={isSelected ? 'true' : undefined}
                 aria-expanded={isFolder ? isOpen : undefined}
                 // 最後修改的時間只在游標停留時顯示，不佔畫面（觸控螢幕沒有游標停留，看不到）
-                title={`最後修改：${formatTime(node.updated_at)}`}
+                title={strings.workspace.lastModified(formatTime(node.updated_at))}
                 {...trigger}
                 onClick={() => props.onSelect(node)}
                 onKeyDown={(event) => {

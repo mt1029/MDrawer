@@ -5,7 +5,8 @@
 // 不送 user_id、version、created_at、updated_at：前者是資料表預設值，其餘只由觸發器寫入。
 
 import type { PostgrestError, SupabaseClient } from '@supabase/supabase-js'
-import { RepoError, type NodeType, type TreeNode } from './nodes.ts'
+import { MAX_NAME_LENGTH, RepoError, type NodeType, type TreeNode } from './nodes.ts'
+import { strings } from '../strings.ts'
 
 /** 雲端的一列，包含已標記刪除的 */
 export interface CloudRow extends TreeNode {
@@ -44,19 +45,19 @@ const BATCH_SIZE = 100
 /** 把 Supabase 的錯誤轉成 RepoError（訊息可直接顯示） */
 export function toRepoError(error: PostgrestError, status: number): RepoError {
   if (status === 0 || !error.code) {
-    return new RepoError('network', '無法連線到伺服器，請確認網路後再試。')
+    return new RepoError('network', strings.errors.network)
   }
   switch (error.code) {
     case '23505':
-      return new RepoError('duplicate_name', '這個資料夾裡已經有相同名稱的項目（不分大小寫）。')
+      return new RepoError('duplicate_name', strings.errors.nodes.duplicateName)
     case '23514':
-      return new RepoError('invalid_name', '名稱不符合規則：1～100 字，不能包含 /、\\ 或 ..。')
+      return new RepoError('invalid_name', strings.errors.names.invalid(MAX_NAME_LENGTH))
     case '23503':
-      return new RepoError('not_found', '上層資料夾不存在，可能已經被刪除。請重新整理後再試。')
+      return new RepoError('not_found', strings.errors.nodes.parentNotFound)
     case 'PGRST116':
-      return new RepoError('not_found', '找不到這個項目，可能已經被刪除。請重新整理後再試。')
+      return new RepoError('not_found', strings.errors.nodes.notFound)
     default:
-      return new RepoError('unknown', `發生錯誤：${error.message}`)
+      return new RepoError('unknown', strings.errors.unknown(error.message))
   }
 }
 

@@ -24,6 +24,7 @@ import FileTree, { type TreeDrag } from './FileTree.tsx'
 import { Icon, IconButton } from './icons.tsx'
 import NameDialog from './NameDialog.tsx'
 import NoteEditor from './NoteEditor.tsx'
+import { strings } from '../strings.ts'
 
 const ROOT = 'root'
 const keyOf = (parentId: string | null) => parentId ?? ROOT
@@ -53,37 +54,37 @@ const NARROW = '(max-width: 720px)'
 // 進入編輯器時在瀏覽器歷史記錄加一筆，Android 的返回手勢、Safari 的往回滑都會回到清單
 const DETAIL_STATE = 'mdrawer-detail'
 
-const TYPE_LABEL: Record<NodeType, string> = { folder: '資料夾', note: '筆記' }
+const TYPE_LABEL: Record<NodeType, string> = strings.workspace.types
 /** 同步狀態：等待同步的筆數、最後同步時間、失敗原因、衝突副本 */
 function SyncStatus() {
   const { owner, syncing, syncError, pendingCount, failures, conflicts } = useMirror()
   let status: string
-  if (pendingCount > 0) status = `${pendingCount} 項修改等待同步${syncing ? '，同步中…' : ''}`
-  else if (syncing) status = '同步中…'
-  else status = owner ? `已同步：${formatTime(owner.syncedAt)}` : ''
+  const text = strings.workspace.sync
+  if (pendingCount > 0) status = syncing ? text.pendingSyncing(pendingCount) : text.pending(pendingCount)
+  else if (syncing) status = text.syncing
+  else status = owner ? text.synced(formatTime(owner.syncedAt)) : ''
 
   return (
     <>
       {status && <p className="status-line">{status}</p>}
       {syncError && !syncing && (
         <p className="status-line warning">
-          同步失敗：{syncError}{' '}
+          {text.failed(syncError)}{' '}
           <button type="button" className="link-button" onClick={() => void mirror.sync()}>
-            重試
+            {strings.common.retry}
           </button>
         </p>
       )}
       {failures.length > 0 && (
         <p className="status-line warning">
-          {failures.length} 項修改無法同步：{failures[0].message}
+          {text.cannotSync(failures.length, failures[0].message)}
         </p>
       )}
       {conflicts.length > 0 && (
         <p className="status-line warning" role="status">
-          有 {conflicts.length} 篇筆記在兩台裝置都改過。雲端的版本保留在原筆記，這台的版本另存為
-          {conflicts.map((name) => `「${name}」`).join('')}，請自行合併。{' '}
+          {text.conflicts(conflicts.length, conflicts)}{' '}
           <button type="button" className="link-button" onClick={() => mirror.dismissConflicts()}>
-            知道了
+            {strings.common.gotIt}
           </button>
         </p>
       )}
@@ -127,7 +128,7 @@ export default function Workspace({ cloud }: Props) {
   }, [])
 
   const report = useCallback((err: unknown) => {
-    setError(err instanceof RepoError ? err.message : '發生未預期的錯誤，請重新整理頁面。')
+    setError(err instanceof RepoError ? err.message : strings.common.unexpectedReload)
   }, [])
 
   // 第一次進入時載入根目錄
@@ -149,7 +150,8 @@ export default function Workspace({ cloud }: Props) {
   const selected = selectedId ? (nodesById.get(selectedId) ?? null) : null
   // 新增的項目放在：資料夾裡、筆記所在的資料夾，或最上層
   const parentFor = (node: NodeMeta | null) => (node ? (node.type === 'folder' ? node.id : node.parent_id) : null)
-  const placeName = (parentId: string | null) => (parentId ? `「${nodesById.get(parentId)?.name ?? '…'}」` : '最上層')
+  const placeName = (parentId: string | null) =>
+    parentId ? strings.common.quoted(nodesById.get(parentId)?.name ?? '…') : strings.workspace.topLevel
   const targetParentId = parentFor(selected)
 
   /**
@@ -301,10 +303,10 @@ export default function Workspace({ cloud }: Props) {
 
   /** 複製到 targetId 資料夾，完成後選取副本 */
   async function copyInto(node: NodeMeta, targetId: string | null) {
-    const copy = await repo.copyNode(node.id, targetId)
+    const duplicate = await repo.copyNode(node.id, targetId)
     await loadChildren(targetId)
     if (targetId) setExpanded((prev) => new Set(prev).add(targetId))
-    setSelectedId(copy.id)
+    setSelectedId(duplicate.id)
   }
 
   /** 貼上剪下或複製的項目。剪下的貼上一次就清掉，複製的可以貼很多次 */
@@ -346,14 +348,14 @@ export default function Workspace({ cloud }: Props) {
     event.stopPropagation()
     if (!dragging) return // 從外面拖進來的東西（例如檔案）不處理
     const target = dropTargetOf(node)
-    const copy = isCopyDrag(event)
+    const copying = isCopyDrag(event)
     // 自己裡面不能放；移動到原本的位置沒有意義（複製可以，會變成「 (2)」）
-    if (isInside(dragging, target) || (!copy && target === dragging.parent_id)) {
+    if (isInside(dragging, target) || (!copying && target === dragging.parent_id)) {
       if (dropTarget !== undefined) setDropTarget(undefined)
       return
     }
     event.preventDefault()
-    event.dataTransfer.dropEffect = copy ? 'copy' : 'move'
+    event.dataTransfer.dropEffect = copying ? 'copy' : 'move'
     if (dropTarget !== target) setDropTarget(target)
 
     if (node?.type === 'folder' && !expanded.has(node.id)) {
@@ -372,12 +374,12 @@ export default function Workspace({ cloud }: Props) {
     event.stopPropagation()
     const source = dragging
     const target = dropTargetOf(node)
-    const copy = isCopyDrag(event)
+    const copying = isCopyDrag(event)
     clearDrag()
     if (!source || isInside(source, target)) return
     setError(null)
     try {
-      if (copy) await copyInto(source, target)
+      if (copying) await copyInto(source, target)
       else await moveInto(source, target)
     } catch (err) {
       report(err)
@@ -422,13 +424,14 @@ export default function Workspace({ cloud }: Props) {
    * 空白處：新增、貼上到最上層。移動用剪下、貼上或拖曳
    */
   function menuItemsFor(node: NodeMeta | null): MenuItems {
+    const text = strings.workspace.contextMenu
     const parentId = parentFor(node)
     const create: MenuItems = [
-      { label: '新增筆記', icon: <Icon of={IconFilePlus} />, onSelect: () => openCreate('note', parentId) },
-      { label: '新增資料夾', icon: <Icon of={IconFolderPlus} />, onSelect: () => openCreate('folder', parentId) },
+      { label: text.newNote, icon: <Icon of={IconFilePlus} />, onSelect: () => openCreate('note', parentId) },
+      { label: text.newFolder, icon: <Icon of={IconFolderPlus} />, onSelect: () => openCreate('folder', parentId) },
     ]
     const pasteItem: MenuItems[number] = {
-      label: '貼上',
+      label: text.paste,
       icon: <Icon of={IconClipboard} />,
       shortcut: shortcut('V'),
       disabled: !clipboard,
@@ -436,15 +439,15 @@ export default function Workspace({ cloud }: Props) {
     }
     if (!node) return [...create, 'separator', pasteItem]
     const clip: MenuItems = [
-      { label: '剪下', icon: <Icon of={IconCut} />, shortcut: shortcut('X'), onSelect: () => setClipboard({ mode: 'cut', node }) },
-      { label: '複製', icon: <Icon of={IconCopy} />, shortcut: shortcut('C'), onSelect: () => setClipboard({ mode: 'copy', node }) },
+      { label: text.cut, icon: <Icon of={IconCut} />, shortcut: shortcut('X'), onSelect: () => setClipboard({ mode: 'cut', node }) },
+      { label: text.copy, icon: <Icon of={IconCopy} />, shortcut: shortcut('C'), onSelect: () => setClipboard({ mode: 'copy', node }) },
       pasteItem,
     ]
     const edit: MenuItems = [
-      { label: '重新命名', icon: <Icon of={IconPencil} />, shortcut: 'F2', onSelect: () => setDialog({ kind: 'rename', node }) },
+      { label: text.rename, icon: <Icon of={IconPencil} />, shortcut: 'F2', onSelect: () => setDialog({ kind: 'rename', node }) },
       'separator',
       {
-        label: '刪除',
+        label: text.delete,
         icon: <Icon of={IconTrash} />,
         shortcut: IS_MAC ? '⌘⌫' : 'Delete',
         danger: true,
@@ -458,7 +461,7 @@ export default function Workspace({ cloud }: Props) {
     setMenu({
       x,
       y,
-      label: node ? `「${node.name}」的操作` : '最上層的操作',
+      label: node ? strings.workspace.contextMenu.label(node.name) : strings.workspace.contextMenu.topLevelLabel,
       items: menuItemsFor(node),
       targetId: node?.id ?? null,
     })
@@ -505,14 +508,14 @@ export default function Workspace({ cloud }: Props) {
         <IconButton
           ref={backButton}
           icon={IconChevronLeft}
-          label="返回檔案總管"
+          label={strings.workspace.back}
           className="icon-button back-button"
           size={22}
           onClick={backToList}
         />
       )}
       <p className="detail-path">
-        <span className="visually-hidden">位置：</span>
+        <span className="visually-hidden">{strings.workspace.location}</span>
         {folderPath(node)}
       </p>
       <div className="detail-title-row">
@@ -524,10 +527,10 @@ export default function Workspace({ cloud }: Props) {
 
   return (
     <div className={sidebarOpen ? 'workspace' : 'workspace sidebar-hidden'} data-screen={screen}>
-      <nav className="activity-bar" aria-label="面板">
+      <nav className="activity-bar" aria-label={strings.workspace.activityBar}>
         <IconButton
           icon={IconFiles}
-          label="檔案總管"
+          label={strings.workspace.explorer}
           className="activity-button"
           size={24}
           pressed={sidebarOpen}
@@ -535,23 +538,23 @@ export default function Workspace({ cloud }: Props) {
         />
       </nav>
 
-      <aside className="sidebar" aria-label="檔案總管">
+      <aside className="sidebar" aria-label={strings.workspace.explorer}>
         <header className="panel-header">
-          <h2 className="panel-title">檔案總管</h2>
+          <h2 className="panel-title">{strings.workspace.explorer}</h2>
           <div className="panel-actions">
             <IconButton
               icon={IconFilePlus}
-              label={`新增筆記到${placeName(targetParentId)}`}
+              label={strings.workspace.newNoteIn(placeName(targetParentId))}
               onClick={() => openCreate('note', targetParentId)}
             />
             <IconButton
               icon={IconFolderPlus}
-              label={`新增資料夾到${placeName(targetParentId)}`}
+              label={strings.workspace.newFolderIn(placeName(targetParentId))}
               onClick={() => openCreate('folder', targetParentId)}
             />
             <IconButton
               icon={IconRefresh}
-              label="重新整理"
+              label={strings.workspace.refresh}
               onClick={() => {
                 void mirror.sync()
                 void refresh()
@@ -559,7 +562,7 @@ export default function Workspace({ cloud }: Props) {
             />
             <IconButton
               icon={anyExpanded ? IconLayoutNavbarCollapse : IconLayoutNavbarExpand}
-              label={anyExpanded ? '全部收合' : '全部展開'}
+              label={anyExpanded ? strings.workspace.collapseAll : strings.workspace.expandAll}
               onClick={() => (anyExpanded ? setExpanded(new Set()) : void expandAll())}
             />
           </div>
@@ -574,7 +577,7 @@ export default function Workspace({ cloud }: Props) {
         {/* 點樹以外的空白處：選取最上層；在空白處按右鍵：新增到最上層 */}
         <nav
           className={dropTarget === null ? 'panel-body drop-root' : 'panel-body'}
-          aria-label="資料夾樹"
+          aria-label={strings.workspace.tree}
           {...menuTrigger(null)}
           onClick={(event) => {
             if (!(event.target as Element).closest('.tree-row')) select(null)
@@ -619,49 +622,49 @@ export default function Workspace({ cloud }: Props) {
           <>
             {renderHeader(selected)()}
             <p className="detail-placeholder">
-              {childrenOf[selected.id] ? `裡面有 ${childrenOf[selected.id].length} 個項目。` : ''}
-              用側欄上方的圖示或右鍵選單，可以在這個資料夾裡新增筆記或資料夾，或把剪下、複製的項目貼上到這裡。
+              {childrenOf[selected.id] ? strings.workspace.folderItems(childrenOf[selected.id].length) : ''}
+              {strings.workspace.folderHelp}
             </p>
           </>
         ) : (
           <p className="detail-placeholder">
-            從左側選一篇筆記。在資料夾或筆記上按右鍵（觸控螢幕長按）可以新增、剪下、複製、貼上、重新命名或刪除。
-            {CAN_DRAG && `也可以直接拖曳到別的資料夾，按住 ${COPY_KEY} 拖曳是複製。`}
+            {strings.workspace.noSelection}
+            {CAN_DRAG && strings.workspace.dragHelp(COPY_KEY)}
           </p>
         )}
       </main>
 
       {dialog?.kind === 'create' && (
         <NameDialog
-          title={`新增${TYPE_LABEL[dialog.type]}`}
-          hint={`會建立在${placeName(dialog.parentId)}`}
-          submitLabel="建立"
+          title={strings.workspace.dialogs.createTitle(TYPE_LABEL[dialog.type])}
+          hint={strings.workspace.dialogs.createHint(placeName(dialog.parentId))}
+          submitLabel={strings.workspace.dialogs.create}
           onSubmit={(name) => handleCreate(dialog.type, dialog.parentId, name)}
           onClose={closeDialog}
         />
       )}
       {dialog?.kind === 'rename' && (
         <NameDialog
-          title={`重新命名${TYPE_LABEL[dialog.node.type]}`}
+          title={strings.workspace.dialogs.renameTitle(TYPE_LABEL[dialog.node.type])}
           initialName={dialog.node.name}
-          submitLabel="儲存"
+          submitLabel={strings.workspace.dialogs.save}
           onSubmit={(name) => handleRename(dialog.node, name)}
           onClose={closeDialog}
         />
       )}
       {dialog?.kind === 'delete' && (
         <ConfirmDialog
-          title={`刪除${TYPE_LABEL[dialog.node.type]}`}
-          confirmLabel="刪除"
+          title={strings.workspace.dialogs.deleteTitle(TYPE_LABEL[dialog.node.type])}
+          confirmLabel={strings.workspace.dialogs.delete}
           danger
           onConfirm={() => handleDelete(dialog.node)}
           onClose={closeDialog}
         >
           <p>
             {dialog.node.type === 'folder'
-              ? `「${dialog.node.name}」和裡面所有的資料夾、筆記都會被刪除。`
-              : `「${dialog.node.name}」會被刪除。`}
-            目前沒有垃圾桶，刪除後無法從畫面上還原。
+              ? strings.workspace.dialogs.deleteFolder(dialog.node.name)
+              : strings.workspace.dialogs.deleteNote(dialog.node.name)}
+            {strings.workspace.dialogs.noTrash}
           </p>
         </ConfirmDialog>
       )}

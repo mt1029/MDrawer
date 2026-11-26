@@ -27,6 +27,7 @@ import {
   type WriteTx,
 } from './localDb.ts'
 import { RepoError, numberedName } from './nodes.ts'
+import { strings } from '../strings.ts'
 
 // 拉取時往回多抓的時間。資料庫的 updated_at 是交易開始的時間，
 // 晚一點 commit 的修改，時間可能比上次看到的還早（ai-log 11/23 的錯誤清單）
@@ -136,7 +137,7 @@ async function push(ctx: Context) {
       ctx.report.pushed++
     } catch (err) {
       if (err instanceof Cancelled || isNetwork(err)) throw err
-      const message = err instanceof RepoError ? err.message : '同步時發生未預期的錯誤。'
+      const message = err instanceof RepoError ? err.message : strings.errors.sync.unexpected
       ctx.report.failed.push({ id, message })
       await markFailed(ctx, change, message)
     }
@@ -197,7 +198,7 @@ async function pushCreate(ctx: Context, change: PendingChange) {
     }
     // id 已經在雲端：之前推送成功但沒收到回應。以雲端那一列為基礎，把不一樣的欄位當成一般修改推送
     const [existing] = await ctx.cloud.getRows([node.id])
-    if (!existing) throw new RepoError('unknown', '同步失敗：雲端找不到剛新增的項目。')
+    if (!existing) throw new RepoError('unknown', strings.errors.sync.createdMissing)
     const fields = FIELDS.filter((field) => node[field] !== existing[field])
     return pushUpdate(ctx, { ...change, op: 'update', base: snapshot(existing), fields }, existing)
   }
@@ -258,7 +259,7 @@ async function pushUpdate(ctx: Context, change: PendingChange, known?: CloudRow)
       }
     }
   }
-  throw new RepoError('unknown', '同步失敗：雲端一直在變動，稍後會再試。')
+  throw new RepoError('unknown', strings.errors.sync.keepsChanging)
 }
 
 /** 以雲端目前的樣子為底，重新套用本機的修改 */
