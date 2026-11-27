@@ -2,6 +2,7 @@
 // 直接使用 App 的 src/lib/cloud.ts（Node 可以直接執行 TypeScript），檢查的就是 App 實際送出的請求。
 // 執行：npm run test:sync（需要 .env.local 與 .env.test.local，同 npm run test:rls）
 // 測試資料都放在一個「同步測試 <時間>」資料夾裡，結束時會實際刪除；圖片檔清除的檢查會上傳一個測試用的小檔案，結束時也會刪掉。
+// 垃圾桶的檢查需要先執行 supabase/migrations/20261127000000_trash.sql（purged_at 欄位）。
 
 import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
@@ -92,7 +93,8 @@ try {
   check('改名撞名：回報 duplicate_name', (await kindOf(a.updateIfVersion(two, { name: '筆記三' }, 1))) === 'duplicate_name')
 
   // ── 刪除與還原 ──
-  const deleted = await a.updateIfVersion(three, { deleted_at: new Date().toISOString() }, 1)
+  // 跟 App 的推送一樣，刪除時一併把 purged_at 設成 null（欄位不存在時這裡會失敗）
+  const deleted = await a.updateIfVersion(three, { deleted_at: new Date().toISOString(), purged_at: null }, 1)
   check('標記刪除', deleted?.deleted_at !== null && deleted?.version === 2)
   const [deletedRow] = await a.getRows([three])
   check('getRows 讀得到已刪除的列', deletedRow?.deleted_at !== null)
@@ -120,7 +122,24 @@ try {
   const [stillA] = await a.getRows([one])
   check('B 修改、用 A 的 id 新增之後，A 的資料維持原樣', stillA?.content === '改過的內容' && stillA.version === 2)
 
-  // ── 資料夾裡的圖片：刪除後清掉 Storage 的檔案（removeImageIfUnused） ──
+  // ── 垃圾桶：列出、永久刪除（purged_at） ──
+  const inTrash = async (cloud, id) => (await cloud.listTrash()).find((row) => row.id === id)
+  const trashed = await inTrash(a, three)
+  check('垃圾桶列出已刪除的列，不含筆記的內容', !!trashed && !('content' in trashed), JSON.stringify(trashed))
+  check('B 的垃圾桶看不到 A 的', !(await inTrash(b, three)))
+  check('B 永久刪除 A 的列：沒有作用', (await b.purge([three])).length === 0 && !!(await inTrash(a, three)))
+  check('永久刪除沒有刪除的列：沒有作用', (await a.purge([one])).length === 0)
+  const [purged] = await a.purge([three])
+  check('永久刪除：筆記內容清掉、列保留（仍是已刪除）', purged?.content === null && purged.deleted_at !== null, JSON.stringify(purged))
+  check('永久刪除後垃圾桶不再列出', !(await inTrash(a, three)))
+  check('已經永久刪除的再永久刪除一次：沒有作用', (await a.purge([three])).length === 0)
+  // 另一台離線時改過、推上來（修改優先）：還原並清掉 purged_at，之後再刪除會回到垃圾桶
+  const revived = await a.updateIfVersion(three, { deleted_at: null, purged_at: null, content: '另一台的修改' }, purged.version)
+  check('永久刪除的列被修改還原', revived?.deleted_at === null && revived.content === '另一台的修改')
+  await a.updateIfVersion(three, { deleted_at: new Date().toISOString(), purged_at: null }, revived.version)
+  check('還原後再刪除：回到垃圾桶', !!(await inTrash(a, three)))
+
+  // ── 資料夾裡的圖片：永久刪除後清掉 Storage 的檔案（removeImageIfUnused） ──
   const uidA = (await clientA.auth.getSession()).data.session.user.id
   filePath = `${uidA}/${fileId}`
   const upload = await clientA.storage
@@ -140,14 +159,19 @@ try {
     await a.insertIfAbsent({ id, parent_id: folderId, type: 'image', name, content: fileId })
     created.push(id)
   }
-  await a.updateIfVersion(imageOne, { deleted_at: new Date().toISOString() }, 1)
-  check('刪掉一張、另一張還用同一個檔案：保留', (await a.removeImageIfUnused(fileId)) === false && (await fileExists()))
+  await a.updateIfVersion(imageOne, { deleted_at: new Date().toISOString(), purged_at: null }, 1)
+  await a.purge([imageOne])
+  check('永久刪除一張、另一張還用同一個檔案：保留', (await a.removeImageIfUnused(fileId)) === false && (await fileExists()))
 
   check('B 呼叫：查不到 A 的資料，也刪不到 A 的檔案', (await b.removeImageIfUnused(fileId)) === false && (await fileExists()))
 
-  const secondDeleted = await a.updateIfVersion(imageTwo, { deleted_at: new Date().toISOString() }, 1)
+  const secondDeleted = await a.updateIfVersion(imageTwo, { deleted_at: new Date().toISOString(), purged_at: null }, 1)
+  check('另一張刪除（在垃圾桶、還能還原）：保留', (await a.removeImageIfUnused(fileId)) === false && (await fileExists()))
+
+  const secondPurged = await a.purge([imageTwo])
+  check('永久刪除圖片：content 仍是檔案的 id（資料庫限制）', secondPurged[0]?.content === fileId, JSON.stringify(secondPurged))
   const removed = await kindOf(a.removeImageIfUnused(fileId).then((result) => { if (!result) throw new Error('回傳 false') }))
-  check('沒有地方用到：removeImageIfUnused 刪掉檔案', removed === 'ok', `第二張刪除${secondDeleted ? '成功' : '失敗'}，結果：${removed}`)
+  check('都永久刪除了：removeImageIfUnused 刪掉檔案', removed === 'ok', `第二張刪除${secondDeleted ? '成功' : '失敗'}，結果：${removed}`)
   check('刪掉之後 Storage 裡查不到這個檔案', !(await fileExists()))
 } catch (err) {
   failures++

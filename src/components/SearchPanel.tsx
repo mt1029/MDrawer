@@ -1,4 +1,3 @@
-import { IconFiles } from '@tabler/icons-react'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { repo } from '../lib/repo.ts'
 import {
@@ -11,7 +10,7 @@ import {
   type TextPart,
 } from '../lib/search.ts'
 import { strings } from '../strings.ts'
-import { IconButton, NoteIcon } from './icons.tsx'
+import { NoteIcon } from './icons.tsx'
 
 // 停止輸入多久後才搜尋（毫秒）：打字時不會每個字都讀一次全部資料
 const DEBOUNCE_MS = 150
@@ -21,9 +20,8 @@ interface Props {
   onQueryChange: (query: string) => void
   /** 資料有變（新增、改名、儲存、同步）時改變，結果跟著更新 */
   version: number
-  /** 小螢幕沒有左側圖示欄：標題列放一個回到檔案總管的圖示 */
-  narrow: boolean
-  onShowExplorer: () => void
+  /** 小螢幕：切換到其他面板的圖示，放在標題列 */
+  switcher?: ReactNode
   /** 打開筆記；hit 是點的那一行（點筆記名稱時沒有） */
   onOpen: (result: SearchResult, hit?: LineHit) => void
   inputRef?: Ref<HTMLInputElement>
@@ -82,7 +80,7 @@ function NoteLabel({ path, children }: { path: string; children: ReactNode }) {
  * 搜尋面板（spec 第 3 節介面改版第 6 步）：搜尋這台裝置上所有筆記的名稱與內容，離線也能用。
  * 結果依筆記分組，列出符合的行；點筆記或某一行就打開，並捲到那一行
  */
-export default function SearchPanel({ query, onQueryChange, version, narrow, onShowExplorer, onOpen, inputRef }: Props) {
+export default function SearchPanel({ query, onQueryChange, version, switcher, onOpen, inputRef }: Props) {
   // 最近一次搜尋的結果。輸入時先保留上一次的結果，新的算好再換，畫面不會一直閃
   const [outcome, setOutcome] = useState<SearchOutcome | null>(null)
   const [failed, setFailed] = useState(false)
@@ -117,9 +115,7 @@ export default function SearchPanel({ query, onQueryChange, version, narrow, onS
     <>
       <header className="panel-header">
         <h2 className="panel-title">{strings.search.title}</h2>
-        <div className="panel-actions">
-          {narrow && <IconButton icon={IconFiles} label={strings.workspace.explorer} onClick={onShowExplorer} />}
-        </div>
+        <div className="panel-actions">{switcher}</div>
       </header>
 
       <div className="search-box">

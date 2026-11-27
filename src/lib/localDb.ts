@@ -54,6 +54,11 @@ export interface PendingChange {
   seq: number
   /** 上次推送失敗的原因（不含斷線），下次同步會再試 */
   error?: string
+  /**
+   * delete：在這台裝置刪除的時間，推送時寫進 deleted_at。同一次刪除（資料夾連同裡面的項目）都一樣，
+   * 垃圾桶靠它分辨哪些是一起刪的。舊版留下、沒有這個欄位的，推送時用當時的時間
+   */
+  deletedAt?: string
 }
 
 interface Schema extends DBSchema {

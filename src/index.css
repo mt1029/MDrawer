@@ -467,7 +467,22 @@ button.link {
 
 .panel-actions {
   display: flex;
+  align-items: center;
   transition: opacity 0.15s ease;
+}
+
+/* 小螢幕：切換面板的圖示自成一組，後面還有面板自己的操作時用一條直線隔開（不會被當成同一類） */
+.panel-switch {
+  display: flex;
+  align-items: center;
+}
+
+.panel-switch:not(:last-child)::after {
+  content: '';
+  width: 1px;
+  height: 1.125rem;
+  margin: 0 0.375rem;
+  background: var(--hairline);
 }
 
 /* 有滑鼠的裝置：游標移到側欄、或用鍵盤移到按鈕時才顯示；觸控裝置一直顯示 */
@@ -1259,6 +1274,88 @@ button.link {
 
   .search-line {
     padding-block: 0.6rem;
+  }
+}
+
+/* ── 垃圾桶面板 ──────────────────────────────────────────── */
+
+.trash-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 每一筆：跟搜尋結果一樣是透明底的按鈕；名稱一行，原本的位置與刪除時間一行 */
+.trash-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.4rem;
+  background: none;
+  color: var(--text);
+  font-weight: 300;
+  text-align: left;
+}
+
+/* 圖示對齊名稱那一行 */
+.trash-item svg {
+  flex: none;
+  margin-top: 0.1rem;
+  color: var(--muted);
+}
+
+.trash-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trash-name,
+.trash-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trash-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.trash-item:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 選取（跟資料夾樹一樣） */
+.trash-item.selected {
+  background: var(--accent-soft);
+}
+
+.trash-item.selected svg {
+  color: var(--accent);
+}
+
+/* 正在開選單的那一筆 */
+.trash-item.menu-target {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* 蓋掉一般按鈕的 hover（深藍底）：沒選取的變灰，選取的維持選取的顏色（跟資料夾樹一樣） */
+@media (hover: hover) {
+  .trash-item:not(:disabled):hover {
+    background: var(--fill-2);
+  }
+
+  .trash-item.selected:not(:disabled):hover {
+    background: var(--accent-soft);
+  }
+}
+
+@media (pointer: coarse) {
+  .trash-item {
+    padding-block: 0.55rem;
   }
 }
 

@@ -13,6 +13,9 @@ export interface CloudRow extends TreeNode {
   deleted_at: string | null
 }
 
+/** 垃圾桶裡的一列：不讀筆記的內容（只顯示名稱與位置） */
+export type TrashRow = Omit<CloudRow, 'content'>
+
 /** 新增時送出的欄位 */
 export interface NewRow {
   id: string
@@ -22,7 +25,10 @@ export interface NewRow {
   content: string | null
 }
 
-export type RowChanges = Partial<Pick<CloudRow, 'name' | 'content' | 'parent_id' | 'deleted_at'>>
+export type RowChanges = Partial<Pick<CloudRow, 'name' | 'content' | 'parent_id' | 'deleted_at'>> & {
+  /** 永久刪除的時間（垃圾桶）。刪除與還原時設成 null：之前永久刪除過、又被別台裝置的修改還原的列，再刪除時才會回到垃圾桶 */
+  purged_at?: null
+}
 
 export interface Cloud {
   /** updated_at >= since 的所有列（含已刪除），依 updated_at、id 排序。since 為 null 時讀全部 */
@@ -33,8 +39,15 @@ export interface Cloud {
   insertIfAbsent(row: NewRow): Promise<CloudRow | null>
   /** 雲端的 version 等於 version 才更新，回傳更新後的列；不相等（被別台改過）回傳 null */
   updateIfVersion(id: string, changes: RowChanges, version: number): Promise<CloudRow | null>
+  /** 垃圾桶：已刪除、還沒永久刪除的列，新刪除的在前 */
+  listTrash(): Promise<TrashRow[]>
   /**
-   * 圖片項目刪除後，刪掉 Storage 裡的圖片檔；還有其他沒刪除的圖片項目（複製出來的）
+   * 永久刪除：標記 purged_at、清掉筆記的內容，列保留（其他裝置才同步得到）。
+   * 只處理還在垃圾桶裡的（已刪除、還沒永久刪除），回傳處理了的列
+   */
+  purge(ids: string[]): Promise<CloudRow[]>
+  /**
+   * 圖片項目永久刪除後，刪掉 Storage 裡的圖片檔；還有其他圖片項目（複製出來的，包含垃圾桶裡還能還原的）
    * 用到同一個檔案時保留。回傳是否刪掉了
    */
   removeImageIfUnused(fileId: string): Promise<boolean>
@@ -43,6 +56,7 @@ export interface Cloud {
 const IMAGE_BUCKET = 'images'
 
 const SYNC_COLUMNS = 'id, parent_id, type, name, content, version, created_at, updated_at, deleted_at'
+const TRASH_COLUMNS = 'id, parent_id, type, name, version, created_at, updated_at, deleted_at'
 
 // 一次讀取的筆數。Supabase 預設最多回傳 1000 筆
 const PAGE_SIZE = 1000
@@ -129,13 +143,51 @@ export function createCloud(client: SupabaseClient, options: { pageSize?: number
       return (data as CloudRow[])[0] ?? null
     },
 
+    async listTrash() {
+      const rows: TrashRow[] = []
+      for (let from = 0; ; from += pageSize) {
+        const { data, error, status } = await nodes()
+          .select(TRASH_COLUMNS)
+          .not('deleted_at', 'is', null)
+          .is('purged_at', null)
+          .order('deleted_at', { ascending: false })
+          .order('id')
+          .range(from, from + pageSize - 1)
+        if (error) throw toRepoError(error, status)
+        const page = data as TrashRow[]
+        rows.push(...page)
+        if (page.length < pageSize) return rows
+      }
+    },
+
+    async purge(ids) {
+      const purgedAt = new Date().toISOString()
+      const rows: CloudRow[] = []
+      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE)
+        // 圖片的 content 是檔案的 id（資料庫限制不能清掉），檔案另外用 removeImageIfUnused 刪；其他的清掉內容
+        for (const images of [false, true]) {
+          let query = nodes()
+            .update(images ? { purged_at: purgedAt } : { purged_at: purgedAt, content: null })
+            .in('id', batch)
+            .not('deleted_at', 'is', null)
+            .is('purged_at', null)
+          query = images ? query.eq('type', 'image') : query.neq('type', 'image')
+          const { data, error, status } = await query.select(SYNC_COLUMNS)
+          if (error) throw toRepoError(error, status)
+          rows.push(...(data as CloudRow[]))
+        }
+      }
+      return rows
+    },
+
     async removeImageIfUnused(fileId) {
       if (!IMAGE_FILE_ID.test(fileId)) return false
       const images = await nodes()
         .select('id')
         .eq('type', 'image')
         .eq('content', fileId)
-        .is('deleted_at', null)
+        .is('purged_at', null)
         .limit(1)
       if (images.error) throw toRepoError(images.error, images.status)
       if (images.data.length > 0) return false

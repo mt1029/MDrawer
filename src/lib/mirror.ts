@@ -11,6 +11,7 @@ import { RepoError } from './nodes.ts'
 import { createLocalRepo } from './repo.local.ts'
 import type { Repo } from './repo.ts'
 import { syncOnce } from './sync.ts'
+import { groupTrash, purgeEntries, restoreEntry } from './trash.ts'
 import { strings } from '../strings.ts'
 
 export interface MirrorState {
@@ -282,6 +283,14 @@ export function createMirror(options: MirrorOptions): Mirror {
     }
   }
 
+  /** 垃圾桶：資料在雲端，連線且已登入、本機副本屬於目前的帳號才能用 */
+  function withCloud<A extends unknown[], R>(operation: (...args: A) => Promise<R>) {
+    return guarded(async (...args: A): Promise<R> => {
+      if (!canUseCloud()) throw new RepoError('offline', strings.trash.offline)
+      return operation(...args)
+    })
+  }
+
   const repo: Repo = {
     listChildren: guarded(local.listChildren),
     getNode: guarded(local.getNode),
@@ -295,6 +304,19 @@ export function createMirror(options: MirrorOptions): Mirror {
     uploadImage: (image) => (canUseCloud() ? online.uploadImage(image) : local.uploadImage(image)),
     getImageUrls: (ids) => (canUseCloud() ? online.getImageUrls(ids) : local.getImageUrls(ids)),
     downloadImage: (id) => (canUseCloud() ? online.downloadImage(id) : local.downloadImage(id)),
+    listTrash: withCloud(async () => {
+      // 先推送這台裝置剛刪除的項目，垃圾桶才看得到
+      await sync()
+      const [rows, live] = await Promise.all([cloud.listTrash(), local.listAll()])
+      return groupTrash(rows, live)
+    }),
+    restoreTrash: withCloud(async (entry) => {
+      const result = await restoreEntry(cloud, entry, await local.listAll())
+      // 拉取還原的項目，檔案總管才看得到
+      await sync()
+      return result
+    }),
+    purgeTrash: withCloud((entries) => purgeEntries(cloud, entries)),
   }
 
   return {

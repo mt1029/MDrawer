@@ -3,11 +3,12 @@
 // version 由「資料庫」加 1、同層未刪除的名稱不分大小寫不可重複、上層必須存在）。
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Cloud, CloudRow } from './cloud.ts'
+import type { CloudRow } from './cloud.ts'
 import { createDbHandle } from './localDb.ts'
 import { RepoError } from './nodes.ts'
 import { createLocalRepo } from './repo.local.ts'
 import { syncOnce } from './sync.ts'
+import { fakeCloud } from './testing/fakeCloud.ts'
 import { strings } from '../strings.ts'
 
 /** 衝突副本的名稱：原名稱接 strings 裡的後綴，時間是「年-月-日 時:分」。改了文案測試也跟著改 */
@@ -18,102 +19,6 @@ function conflictCopyPattern(name: string): RegExp {
   return new RegExp(`^${escape(name + before)}\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}${escape(after)}$`)
 }
 
-function fakeCloud() {
-  const rows = new Map<string, CloudRow>()
-  let clock = Date.parse('2026-11-25T00:00:00Z')
-  const stamp = () => new Date((clock += 1000)).toISOString()
-  const state = {
-    online: true,
-    /** 接下來幾次寫入：雲端寫入成功，但回應遺失（丟出連線錯誤） */
-    dropResponses: 0,
-    /** 修改一律失敗（模擬斷線以外的錯誤） */
-    failUpdates: false,
-    /** 每次寫入前執行（模擬推送期間使用者又修改） */
-    beforeWrite: undefined as undefined | (() => Promise<void>),
-    /** Storage 裡被刪掉的圖片檔 id */
-    removedFiles: [] as string[],
-  }
-  const clone = (row: CloudRow): CloudRow => ({ ...row })
-  const check = () => {
-    if (!state.online) throw new RepoError('network', '無法連線到伺服器，請確認網路後再試。')
-  }
-  const assertName = (parentId: string | null, name: string, exceptId?: string) => {
-    for (const row of rows.values()) {
-      if (!row.deleted_at && row.parent_id === parentId && row.id !== exceptId && row.name.toLowerCase() === name.toLowerCase()) {
-        throw new RepoError('duplicate_name', '這個資料夾裡已經有相同名稱的項目（不分大小寫）。')
-      }
-    }
-  }
-  // 外鍵只檢查列存在（標記刪除的也算），跟資料庫一樣
-  const assertParent = (parentId: string | null) => {
-    if (parentId && !rows.has(parentId)) throw new RepoError('not_found', '上層資料夾不存在。')
-  }
-  const respond = (row: CloudRow) => {
-    if (state.dropResponses > 0) {
-      state.dropResponses--
-      throw new RepoError('network', '無法連線到伺服器，請確認網路後再試。')
-    }
-    return clone(row)
-  }
-  const beforeWrite = async () => {
-    const hook = state.beforeWrite
-    state.beforeWrite = undefined
-    await hook?.()
-  }
-
-  const cloud: Cloud = {
-    async pullSince(since) {
-      check()
-      return [...rows.values()]
-        .filter((row) => !since || Date.parse(row.updated_at) >= Date.parse(since))
-        .sort((a, b) => a.updated_at.localeCompare(b.updated_at) || a.id.localeCompare(b.id))
-        .map(clone)
-    },
-    async getRows(ids) {
-      check()
-      return ids.flatMap((id) => (rows.has(id) ? [clone(rows.get(id)!)] : []))
-    },
-    async insertIfAbsent(row) {
-      check()
-      await beforeWrite()
-      if (rows.has(row.id)) return null
-      assertName(row.parent_id, row.name)
-      assertParent(row.parent_id)
-      const time = stamp()
-      const created: CloudRow = { ...row, version: 1, created_at: time, updated_at: time, deleted_at: null }
-      rows.set(row.id, created)
-      return respond(created)
-    },
-    async updateIfVersion(id, changes, version) {
-      check()
-      await beforeWrite()
-      if (state.failUpdates) throw new RepoError('unknown', '發生錯誤：測試用的失敗')
-      const row = rows.get(id)
-      if (!row || row.version !== version) return null
-      const next: CloudRow = { ...row, ...changes }
-      const restoring = row.deleted_at !== null && changes.deleted_at === null
-      if (!next.deleted_at && (changes.name !== undefined || changes.parent_id !== undefined || restoring)) {
-        assertName(next.parent_id, next.name, id)
-      }
-      if (changes.parent_id !== undefined) assertParent(next.parent_id)
-      next.version = row.version + 1
-      next.updated_at = stamp()
-      rows.set(id, next)
-      return respond(next)
-    },
-    async removeImageIfUnused(fileId) {
-      check()
-      const used = [...rows.values()].some((row) => !row.deleted_at && row.type === 'image' && row.content === fileId)
-      if (used) return false
-      state.removedFiles.push(fileId)
-      return true
-    },
-  }
-
-  /** 雲端上未刪除、名稱相符的列 */
-  const live = (name: string) => [...rows.values()].find((row) => row.name === name && !row.deleted_at)
-  return { cloud, rows, state, stamp, live }
-}
 
 let fake: ReturnType<typeof fakeCloud>
 let dbCount = 0
@@ -216,48 +121,18 @@ describe('資料夾裡的圖片', () => {
     expect(await a.content(copy.id)).toBe(FILE)
   })
 
-  it('刪除圖片：推送後刪掉 Storage 的檔案；還有副本用到時保留，副本也刪了才刪檔案', async () => {
-    const a = device()
-    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
-    const copy = await a.repo.copyNode(image.id, null)
-    await a.sync()
-
-    await a.repo.deleteNode(image.id)
-    await a.sync()
-    expect(fake.rows.get(image.id)?.deleted_at).not.toBeNull()
-    expect(fake.state.removedFiles).toEqual([]) // 副本還在用
-
-    await a.repo.deleteNode(copy.id)
-    await a.sync()
-    expect(fake.state.removedFiles).toEqual([FILE])
-  })
-
-  it('刪除資料夾連同裡面的圖片：圖片檔也刪掉；刪除筆記不會動到圖片檔', async () => {
+  it('刪除圖片：推送後只標記刪除，圖片檔留著（在垃圾桶還能還原；永久刪除時才刪，見 trash.test.ts）', async () => {
     const a = device()
     const folder = await a.repo.createNode({ parentId: null, type: 'folder', name: '資料夾' })
-    await a.repo.createNode({ parentId: folder.id, type: 'image', name: 'a.webp', content: FILE })
-    const note = await a.repo.createNode({ parentId: null, type: 'note', name: '筆記', content: '文字' })
+    const image = await a.repo.createNode({ parentId: folder.id, type: 'image', name: 'a.webp', content: FILE })
+    const copy = await a.repo.copyNode(image.id, null)
     await a.sync()
-    await a.repo.deleteNode(note.id)
-    await a.sync()
-    expect(fake.state.removedFiles).toEqual([])
     await a.repo.deleteNode(folder.id)
+    await a.repo.deleteNode(copy.id)
     await a.sync()
-    expect(fake.state.removedFiles).toEqual([FILE])
-  })
-
-  it('刪除圖片時 Storage 刪不掉（例如斷線）不影響同步', async () => {
-    const a = device()
-    const image = await a.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: FILE })
-    await a.sync()
-    await a.repo.deleteNode(image.id)
-    fake.cloud.removeImageIfUnused = async () => {
-      throw new RepoError('network', '無法連線')
-    }
-    const report = await a.sync()
-    expect(report.failed).toEqual([])
-    expect(await a.pending()).toEqual([])
     expect(fake.rows.get(image.id)?.deleted_at).not.toBeNull()
+    expect(fake.rows.get(copy.id)?.deleted_at).not.toBeNull()
+    expect(fake.state.removedFiles).toEqual([])
   })
 })
 

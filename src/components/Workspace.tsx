@@ -45,6 +45,7 @@ import { Icon, IconButton } from './icons.tsx'
 import NameDialog from './NameDialog.tsx'
 import NoteEditor, { type Reveal } from './NoteEditor.tsx'
 import SearchPanel from './SearchPanel.tsx'
+import TrashPanel from './TrashPanel.tsx'
 import { strings } from '../strings.ts'
 
 const ROOT = 'root'
@@ -55,8 +56,16 @@ type DialogState =
   | { kind: 'rename'; node: NodeMeta }
   | { kind: 'delete'; nodes: NodeMeta[] }
 
-/** 側欄的面板：檔案總管或搜尋 */
-type Panel = 'explorer' | 'search'
+/** 側欄的面板：檔案總管、搜尋或垃圾桶 */
+type Panel = 'explorer' | 'search' | 'trash'
+
+const PANELS: Panel[] = ['explorer', 'search', 'trash']
+const PANEL_TITLE: Record<Panel, string> = {
+  explorer: strings.workspace.explorer,
+  search: strings.search.title,
+  trash: strings.trash.title,
+}
+const PANEL_ICON = { explorer: IconFiles, search: IconSearch, trash: IconTrash } satisfies Record<Panel, unknown>
 
 /** 剪下或複製、還沒貼上的項目（App 自己的剪貼簿，不影響系統剪貼簿） */
 type Clipboard = { mode: 'cut' | 'copy'; nodes: NodeMeta[] }
@@ -798,6 +807,19 @@ export default function Workspace({ cloud }: Props) {
     event.preventDefault()
   }
 
+  /**
+   * 小螢幕沒有左側圖示欄：每個面板的標題列最前面放其他面板的圖示，
+   * 自成一組、跟面板自己的操作（新增、重新整理等）用一條直線隔開，不會被當成同一類
+   */
+  const panelSwitch = (current: Panel) =>
+    narrow ? (
+      <div className="panel-switch" role="group" aria-label={strings.workspace.activityBar}>
+        {PANELS.filter((item) => item !== current).map((item) => (
+          <IconButton key={item} icon={PANEL_ICON[item]} label={PANEL_TITLE[item]} onClick={() => showPanel(item)} />
+        ))}
+      </div>
+    ) : null
+
   const anyExpanded = expanded.size > 0
   // 小螢幕目前的畫面：選了筆記或圖片、而且點進去之後才是編輯器或圖片預覽
   const screen = narrow && inDetail && (selected?.type === 'note' || selected?.type === 'image') ? 'detail' : 'list'
@@ -849,17 +871,24 @@ export default function Workspace({ cloud }: Props) {
           pressed={sidebarOpen && panel === 'search'}
           onClick={() => showPanel('search')}
         />
+        <IconButton
+          icon={IconTrash}
+          label={strings.trash.title}
+          className="activity-button"
+          size={24}
+          pressed={sidebarOpen && panel === 'trash'}
+          onClick={() => showPanel('trash')}
+        />
       </nav>
 
-      <aside className="sidebar" aria-label={panel === 'search' ? strings.search.title : strings.workspace.explorer}>
+      <aside className="sidebar" aria-label={PANEL_TITLE[panel]}>
         {panel === 'search' ? (
           <>
             <SearchPanel
               query={searchQuery}
               onQueryChange={setSearchQuery}
               version={dataVersion}
-              narrow={narrow}
-              onShowExplorer={() => setPanel('explorer')}
+              switcher={panelSwitch('search')}
               onOpen={(result, hit) => void openResult(result, hit)}
               inputRef={searchInput}
             />
@@ -869,13 +898,15 @@ export default function Workspace({ cloud }: Props) {
               </p>
             )}
           </>
+        ) : panel === 'trash' ? (
+          <TrashPanel cloud={cloud} switcher={panelSwitch('trash')} />
         ) : (
           <>
             <header className="panel-header">
               <h2 className="panel-title">{strings.workspace.explorer}</h2>
               <div className="panel-actions">
                 {/* 小螢幕沒有左側圖示欄，搜尋放在這裡 */}
-                {narrow && <IconButton icon={IconSearch} label={strings.search.title} onClick={() => showPanel('search')} />}
+                {panelSwitch('explorer')}
                 <IconButton
                   icon={IconFilePlus}
                   label={strings.workspace.newNoteIn(placeName(targetParentId))}
@@ -1033,7 +1064,7 @@ export default function Workspace({ cloud }: Props) {
                 : dialog.nodes[0].type === 'image'
                   ? strings.workspace.dialogs.deleteImage(dialog.nodes[0].name)
                   : strings.workspace.dialogs.deleteNote(dialog.nodes[0].name)}
-            {strings.workspace.dialogs.noTrash}
+            {strings.workspace.dialogs.toTrash}
           </p>
         </ConfirmDialog>
       )}

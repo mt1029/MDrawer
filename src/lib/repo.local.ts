@@ -220,6 +220,8 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
           }
         }
 
+        // 同一次刪除用同一個時間（垃圾桶靠它把一起刪的項目合成一筆）
+        const deletedAt = now().toISOString()
         for (const nodeId of ids) {
           const node = (await nodes.get(nodeId))!
           const change = await pending.get(nodeId)
@@ -236,6 +238,7 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
             fields: [],
             rev: (change?.rev ?? 0) + 1,
             seq: nextSeq(),
+            deletedAt,
           })
         }
       })
@@ -286,5 +289,9 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
     uploadImage: () => offline(strings.errors.images.offlineUpload),
     getImageUrls: () => offline(strings.errors.images.offlineLoad),
     downloadImage: () => offline(strings.errors.images.offlineDownload),
+    // 垃圾桶的資料在雲端（這台裝置不保留刪除的項目）：連線時由 mirror.ts 處理
+    listTrash: () => offline(strings.trash.offline),
+    restoreTrash: () => offline(strings.trash.offline),
+    purgeTrash: () => offline(strings.trash.offline),
   }
 }

@@ -6,10 +6,12 @@ import { createDbHandle } from './localDb.ts'
 import { createMirror } from './mirror.ts'
 import type { NodeMeta, NodeType, TreeNode } from './nodes.ts'
 import { cloud, onlineRepo } from './repo.online.ts'
+import type { RestoreResult, TrashEntry } from './trash.ts'
 
 export * from './nodes.ts'
 export type { LocalOwner } from './localDb.ts'
 export type { MirrorState } from './mirror.ts'
+export type { RestoreResult, TrashEntry } from './trash.ts'
 
 export interface CreateNodeInput {
   parentId: string | null
@@ -55,6 +57,12 @@ export interface Repo {
   getImageUrls(ids: string[]): Promise<Record<string, string | null>>
   /** 下載圖片檔，匯出 ZIP 用。Blob 的 type 為 image/webp 或 image/jpeg */
   downloadImage(id: string): Promise<Blob>
+  /** 垃圾桶的內容（需要連線）：同一次刪除的項目合成一筆，新刪除的在前 */
+  listTrash(): Promise<TrashEntry[]>
+  /** 還原垃圾桶的一筆（需要連線）：放回原本的資料夾，已經不在時放到最上層；撞名時加「 (2)」 */
+  restoreTrash(entry: TrashEntry): Promise<RestoreResult>
+  /** 永久刪除（需要連線；清空垃圾桶時傳入全部），回傳處理了幾個項目 */
+  purgeTrash(entries: TrashEntry[]): Promise<number>
 }
 
 /** 本機資料與同步：登入後啟用、在背景同步、登出時清除 */

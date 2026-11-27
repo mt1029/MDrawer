@@ -184,7 +184,8 @@ export const strings = {
       deleteImage: (name: string) => `${quoted(name)}將被刪除。`,
       deleteManyTitle: (count: number) => `刪除 ${count} 個項目`,
       deleteMany: (count: number) => `已選取的 ${count} 個項目將被刪除。`,
-      noTrash: '目前沒有垃圾桶，刪除後無法從畫面上還原。',
+      /** 接在刪除的說明後面 */
+      toTrash: '刪除的項目會移到垃圾桶，連線時可以從垃圾桶還原。',
     },
   },
 
@@ -209,6 +210,45 @@ export const strings = {
     noteLabel: (name: string, path: string, count: number) => `${name}，在 ${path}，內容 ${count} 處`,
     lineLabel: (line: number, text: string) => `第 ${line} 行：${text}`,
     failed: '無法讀取這台裝置上的筆記，請重新整理頁面。',
+  },
+
+  /** 垃圾桶面板（TrashPanel、trash.ts）。只在連線時能用 */
+  trash: {
+    title: 'TRASH',
+    list: '垃圾桶裡的項目',
+    refresh: '重新整理',
+    empty: '清空垃圾桶',
+    loading: '正在讀取垃圾桶...',
+    offline: '離線時無法使用垃圾桶，請連線後再試。',
+    nothing: '垃圾桶是空的。',
+    hint: '在項目上按右鍵（觸控裝置長按）可以還原或永久刪除。',
+    /** 每一筆的第二行：原本的位置、刪除的時間；資料夾加上裡面一起刪除的項目數 */
+    meta: (path: string, time: string, items: number) => [path, time, items > 0 ? `含 ${items} 個項目` : ''].filter(Boolean).join('・'),
+    /** 給螢幕閱讀器 */
+    itemLabel: (name: string, path: string, time: string) => `${name}，原本在 ${path}，${time} 刪除`,
+    menuLabel: (name: string) => `${quoted(name)}的操作`,
+    /** 在多選的項目上按右鍵 */
+    selectionLabel: (count: number) => `已選取 ${count} 筆`,
+    restore: '還原',
+    restoreMany: (count: number) => `還原 ${count} 筆`,
+    purge: '永久刪除',
+    purgeMany: (count: number) => `永久刪除 ${count} 筆`,
+    restoring: '正在還原...',
+    restored: (name: string, path: string) => `已還原${quoted(name)}到 ${path}。`,
+    restoredToRoot: (name: string) => `原本的資料夾已不在，${quoted(name)}還原到最上層。`,
+    /** 還原好幾筆；toRoot 是原本的資料夾已不在、放到最上層的筆數 */
+    restoredMany: (count: number, toRoot: number) =>
+      `已還原 ${count} 筆。${toRoot > 0 ? `其中 ${toRoot} 筆原本的資料夾已不在，放到最上層。` : ''}`,
+    purgeTitle: '永久刪除？',
+    purgeItem: (name: string) => `${quoted(name)}會被永久刪除，無法復原。`,
+    purgeFolder: (name: string, count: number) => `${quoted(name)}和裡面的 ${count} 個項目會被永久刪除，無法復原。`,
+    /** 多選的好幾筆；count 包含資料夾裡一起刪除的項目 */
+    purgeManyBody: (count: number) => `選取的 ${count} 個項目（含資料夾裡的）會被永久刪除，無法復原。`,
+    emptyTitle: '清空垃圾桶？',
+    emptyBody: (count: number) => `垃圾桶裡的 ${count} 個項目都會被永久刪除，無法復原。`,
+    purged: (count: number) => `已永久刪除 ${count} 個項目。`,
+    /** 列出垃圾桶之後，那一列被別台裝置還原、永久刪除或改過 */
+    changed: '垃圾桶的內容剛被其他裝置改過，請重新整理後再試。',
   },
 
   /** 上傳圖片到資料夾、選了圖片時右側的預覽（Workspace、ImageViewer） */

@@ -267,7 +267,7 @@ function merge(node: LocalNode, change: PendingChange, base: Snapshot, current: 
   if (current.deleted_at) {
     // 其他裝置刪除了，但這裡有還沒推送的修改：刪除不會蓋掉修改，還原並套用本機的版本
     return {
-      changes: { name: node.name, content: node.content, parent_id: node.parent_id, deleted_at: null } as RowChanges,
+      changes: { name: node.name, content: node.content, parent_id: node.parent_id, deleted_at: null, purged_at: null } as RowChanges,
       contentConflict: false,
     }
   }
@@ -310,15 +310,12 @@ async function makeConflictCopy(ctx: Context, node: LocalNode) {
 }
 
 async function pushDelete(ctx: Context, change: PendingChange) {
-  const row = await ctx.cloud.updateIfVersion(change.id, { deleted_at: ctx.now().toISOString() }, change.base!.version)
+  // 刪除的項目進垃圾桶：圖片的檔案留著（還原後要顯示），永久刪除時才刪（trash.ts）
+  const deletedAt = change.deletedAt ?? ctx.now().toISOString()
+  const row = await ctx.cloud.updateIfVersion(change.id, { deleted_at: deletedAt, purged_at: null }, change.base!.version)
   if (row) {
     ctx.folders.set(change.id, false)
     await commit(ctx, change, row)
-    // 圖片：雲端已經標記刪除，沒有其他地方用到的話把 Storage 裡的檔案也刪掉。
-    // 失敗（例如斷線）不影響這次同步，只是留下用不到的檔案
-    if (row.type === 'image' && row.content) {
-      await ctx.cloud.removeImageIfUnused(row.content).catch(() => false)
-    }
     return
   }
   const [current] = await ctx.cloud.getRows([change.id])
@@ -360,6 +357,7 @@ async function commit(ctx: Context, change: PendingChange, row: CloudRow, keepCl
       fields: [],
       rev: (latest?.rev ?? change.rev) + 1,
       seq: latest?.seq ?? change.seq,
+      deletedAt: latest?.deletedAt,
     })
     ctx.report.again = true
   } else if (!latest || latest.rev === change.rev) {

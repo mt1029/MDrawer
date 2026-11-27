@@ -14,6 +14,7 @@ import {
 } from './nodes.ts'
 import type { CreateNodeInput, Repo, UpdateNodeInput } from './repo.ts'
 import { supabase } from './supabase.ts'
+import { groupTrash, purgeEntries, restoreEntry } from './trash.ts'
 import { strings } from '../strings.ts'
 
 const META_COLUMNS = 'id, parent_id, type, name, version, created_at, updated_at'
@@ -332,6 +333,9 @@ export const onlineRepo: Repo = {
   uploadImage,
   getImageUrls,
   downloadImage,
+  listTrash: async () => groupTrash(await cloud.listTrash(), await listAll()),
+  restoreTrash: async (entry) => restoreEntry(cloud, entry, await listAll()),
+  purgeTrash: (entries) => purgeEntries(cloud, entries),
 }
 
 /** 同步用的雲端操作（sync.ts 使用） */

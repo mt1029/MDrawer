@@ -45,6 +45,13 @@ const cloud: Cloud = {
   async removeImageIfUnused() {
     return false
   },
+  async listTrash() {
+    if (!online) throw new RepoError('network', '無法連線')
+    return [...rows.values()].filter((r) => r.deleted_at).map(({ content: _content, ...r }) => r)
+  },
+  async purge() {
+    return []
+  },
 }
 
 // 圖片用的線上版 repo：只記錄有沒有被呼叫
