@@ -471,14 +471,14 @@ export default function Workspace({ cloud }: Props) {
     uploadInput.current?.click()
   }
 
-  /** 一張一張壓縮、上傳，再放進資料夾（撞名時自動加編號）。完成後選取最後一張 */
+  /** 一張一張壓縮、上傳（離線時先存在這台裝置，連線後同步上傳），再放進資料夾（撞名時自動加編號）。完成後選取最後一張 */
   async function uploadImages(files: File[], parentId: string | null) {
     if (files.length === 0) return
     setError(null)
     const failed: { name: string; message: string }[] = []
     let last: string | null = null
     for (const [index, file] of files.entries()) {
-      setNotice({ text: strings.images.uploading(index + 1, files.length), busy: true })
+      setNotice({ text: (cloud ? strings.images.uploading : strings.images.saving)(index + 1, files.length), busy: true })
       try {
         const image = await compressImage(file)
         const fileId = await repo.uploadImage(image.blob)
@@ -506,7 +506,7 @@ export default function Workspace({ cloud }: Props) {
       setNotice(null)
       setError(strings.images.someFailed(failed.length, failed[0].name, failed[0].message))
     } else {
-      setNotice({ text: strings.images.uploaded(files.length), busy: false })
+      setNotice({ text: (cloud ? strings.images.uploaded : strings.images.savedOffline)(files.length), busy: false })
     }
   }
 
@@ -540,7 +540,6 @@ export default function Workspace({ cloud }: Props) {
       const result = await runImport(plan, parentId, {
         repo,
         compress: (file) => keepOrCompress(file),
-        cloud,
         onProgress: (done, total) => setNotice({ text: strings.imports.progress(done, total), busy: true }),
       })
       await loadChildren(parentId).catch(report)
@@ -558,12 +557,12 @@ export default function Workspace({ cloud }: Props) {
       if (failed.length > 0) setError(strings.imports.someFailed(failed.length, failed[0].name, failed[0].message))
       const extra = [
         result.skipped > 0 && strings.imports.skipped(result.skipped),
-        result.offlineImages > 0 && strings.imports.offlineImages(result.offlineImages),
+        !cloud && result.images > 0 && strings.imports.imagesLater,
       ].filter((text): text is string => Boolean(text))
       setNotice({
         text: [strings.imports.done(result.folders, result.notes, result.images), ...extra].join(' '),
         busy: false,
-        sticky: extra.length > 0,
+        sticky: result.skipped > 0,
       })
     } catch (err) {
       setNotice(null)
@@ -723,12 +722,7 @@ export default function Workspace({ cloud }: Props) {
       { label: text.newNote, icon: <Icon of={IconFilePlus} />, onSelect: () => openCreate('note', parentId) },
       { label: text.newFolder, icon: <Icon of={IconFolderPlus} />, onSelect: () => openCreate('folder', parentId) },
       'separator',
-      {
-        label: cloud ? text.uploadImages : text.uploadImagesOffline,
-        icon: <Icon of={IconPhotoUp} />,
-        disabled: !cloud,
-        onSelect: () => chooseImages(parentId),
-      },
+      { label: text.uploadImages, icon: <Icon of={IconPhotoUp} />, onSelect: () => chooseImages(parentId) },
       { label: text.importFiles, icon: <Icon of={IconFileImport} />, onSelect: () => chooseImport(parentId, false) },
       { label: text.importFolder, icon: <Icon of={IconFolderUp} />, onSelect: () => chooseImport(parentId, true) },
     ]

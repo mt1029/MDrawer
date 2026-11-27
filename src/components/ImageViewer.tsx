@@ -7,7 +7,7 @@ interface Props {
   nodeId: string
   /** 圖片的名稱（說明怎麼在筆記裡引用） */
   name: string
-  /** 可以連到雲端：圖片只存在雲端，離線時無法顯示 */
+  /** 可以連到雲端：雲端上的圖片離線時無法顯示（離線時插入、還沒上傳的可以）。恢復連線時重新讀取 */
   cloud: boolean
   /** 畫出標題區（路徑與名稱） */
   renderHeader: () => ReactNode
@@ -24,15 +24,17 @@ export default function ImageViewer({ nodeId, name, cloud, renderHeader }: Props
   const [size, setSize] = useState<{ width: number; height: number } | null>(null)
 
   useEffect(() => {
-    if (!cloud) return
     let cancelled = false
     repo
       .getNode(nodeId)
-      .then(async (node) => {
+      .then(async (node): Promise<State> => {
         const fileId = node?.content
-        if (!fileId) return { kind: 'message', text: strings.images.missing, error: true } as const
+        if (!fileId) return { kind: 'message', text: strings.images.missing, error: true }
         const url = (await repo.getImageUrls([fileId]))[fileId]
-        return url ? ({ kind: 'ready', url } as const) : ({ kind: 'message', text: strings.images.missing, error: true } as const)
+        if (url) return { kind: 'ready', url }
+        // 沒有列出：離線，而且這張在雲端
+        if (url === undefined) return { kind: 'message', text: strings.images.offline }
+        return { kind: 'message', text: strings.images.missing, error: true }
       })
       .catch((err: unknown) => ({
         kind: 'message' as const,
@@ -47,21 +49,19 @@ export default function ImageViewer({ nodeId, name, cloud, renderHeader }: Props
     }
   }, [nodeId, cloud])
 
-  const shown: State = cloud ? state : { kind: 'message', text: strings.images.offline }
-
   return (
     <>
       {renderHeader()}
-      {shown.kind === 'loading' && <p className="detail-placeholder">{strings.images.loading}</p>}
-      {shown.kind === 'message' && (
-        <p className={shown.error ? 'message error' : 'detail-placeholder'} role={shown.error ? 'alert' : undefined}>
-          {shown.text}
+      {state.kind === 'loading' && <p className="detail-placeholder">{strings.images.loading}</p>}
+      {state.kind === 'message' && (
+        <p className={state.error ? 'message error' : 'detail-placeholder'} role={state.error ? 'alert' : undefined}>
+          {state.text}
         </p>
       )}
-      {shown.kind === 'ready' && (
+      {state.kind === 'ready' && (
         <figure className="image-viewer">
           <img
-            src={shown.url}
+            src={state.url}
             alt={strings.images.previewLabel}
             onLoad={(event) => setSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
             onError={() => setState({ kind: 'message', text: strings.images.missing, error: true })}

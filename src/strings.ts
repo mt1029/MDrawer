@@ -70,7 +70,7 @@ export const strings = {
     /** 不能連到雲端時上方的提示：連線中但登入狀態還在確認 */
     checkingSession: '目前無法連線，仍在確認登入狀態，修改將暫時存放在這台裝置，恢復連線後會自動同步。',
     /** 不能連到雲端時上方的提示：離線 */
-    offline: '目前無法連線，修改將暫時存放在這台裝置，恢復連線後會自動同步。你將無法插入 / 查看圖片。',
+    offline: '目前無法連線，修改與插入的圖片將暫時存放在這台裝置，恢復連線後會自動同步。你將無法查看雲端上的圖片。',
     /** 登入畫面：離線時 */
     signInOffline: '目前無法連線，請稍後再試。',
     /** 登入畫面：被強制登出、還有沒同步的修改 */
@@ -140,7 +140,6 @@ export const strings = {
       newFolder: '新增資料夾',
       /** 資料夾的右鍵選單：選擇圖片檔上傳到這個資料夾（可以一次選多張） */
       uploadImages: '上傳圖片',
-      uploadImagesOffline: '上傳圖片（離線時無法上傳）',
       /** 從裝置匯入 .md、圖片、ZIP，或整個資料夾到這裡 */
       importFiles: '匯入檔案',
       importFolder: '匯入資料夾',
@@ -259,6 +258,9 @@ export const strings = {
     /** 上傳中（側欄上方）；done、total 是第幾張、共幾張 */
     uploading: (done: number, total: number) => `正在上傳圖片...（${done}/${total}）`,
     uploaded: (count: number) => `已上傳 ${count} 張圖片。`,
+    /** 離線時：先存在這台裝置 */
+    saving: (done: number, total: number) => `正在存放圖片...（${done}/${total}）`,
+    savedOffline: (count: number) => `已存放 ${count} 張圖片，將在恢復連線後上傳。`,
     /** 有些失敗時；name 是第一張失敗的檔名 */
     someFailed: (failed: number, name: string, message: string) => `${failed} 張圖片沒有上傳（${name}：${message}）`,
     /** 預覽 */
@@ -288,7 +290,8 @@ export const strings = {
     },
     /** 接在 done 後面 */
     skipped: (count: number) => `略過 ${count} 個不支援的檔案。`,
-    offlineImages: (count: number) => `無法於離線時匯入圖片，略過 ${count} 張。`,
+    /** 離線時匯入了圖片：接在 done 後面 */
+    imagesLater: '圖片將在恢復連線後上傳。',
     /** 有些失敗時；name 是第一個失敗的檔名 */
     someFailed: (failed: number, name: string, message: string) => `${failed} 個檔案沒有匯入（${name}：${message}）`,
     nothing: '沒有可以匯入的檔案。',
@@ -318,7 +321,6 @@ export const strings = {
     previewLabel: '預覽',
     /** 右上角的圖示 */
     insertImage: '插入圖片',
-    insertImageOffline: '目前無法插入圖片',
     preview: '預覽 Markdown',
     backToEdit: '回到編輯',
     /** 眼睛的右鍵選單 */
@@ -336,9 +338,11 @@ export const strings = {
       compressing: (originalSize: string) => `正在壓縮圖片...(${originalSize})`,
       uploading: (size: string) => `上傳中...(${size})`,
       inserted: `已插入圖片`,
+      /** 離線時：圖片先存在這台裝置 */
+      saving: (size: string) => `正在存放圖片...(${size})`,
+      savedOffline: '已插入圖片，將在恢復連線後上傳。',
       placeholderRemoved: '圖片已上傳，但因插入位置的資料已遺失而無法插入。',
       failed: '無法插入圖片，請再試一次。',
-      offlinePaste: '目前無法連線故插入失敗，請稍後再試。',
       /** 貼上的截圖放進資料夾時的名稱（後面會接 .webp 或 .jpg）；time 是「年月日-時分秒」 */
       pastedName: (time: string) => `截圖-${time}`,
       /** 拖進編輯區的檔案不是圖片 */
@@ -418,7 +422,6 @@ export const strings = {
     /** 圖片：上傳、取得網址、下載 */
     images: {
       offlineUpload: '離線時無法上傳圖片。',
-      offlineLoad: '離線時無法載入圖片。',
       offlineDownload: '離線時無法下載圖片。',
       uploadNetwork: '無法連線到伺服器，故沒有上傳圖片。',
       tooLarge: '圖片超過 2 MB 上限。',
@@ -431,6 +434,8 @@ export const strings = {
       downloadNetwork: '無法連線到伺服器，故沒有下載圖片。',
       /** 建立圖片項目時圖片檔的 id 不對（程式錯誤，不應該發生） */
       invalidFile: '圖片檔的資料不正確，請重新上傳。',
+      /** 離線時要把圖片存在這台裝置，但空間不足 */
+      noSpace: '這台裝置的儲存空間不足，無法存放圖片。',
     },
     /** 匯出 ZIP */
     exportOffline: '離線時無法匯出，請確認網路連線。',

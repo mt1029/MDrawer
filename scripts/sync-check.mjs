@@ -1,7 +1,7 @@
 // 離線 L2 的同步，在真正的 Supabase 上檢查一次（單元測試用的是假的雲端，這裡確認真的資料庫行為一致）。
 // 直接使用 App 的 src/lib/cloud.ts（Node 可以直接執行 TypeScript），檢查的就是 App 實際送出的請求。
 // 執行：npm run test:sync（需要 .env.local 與 .env.test.local，同 npm run test:rls）
-// 測試資料都放在一個「同步測試 <時間>」資料夾裡，結束時會實際刪除；圖片檔清除的檢查會上傳一個測試用的小檔案，結束時也會刪掉。
+// 測試資料都放在一個「同步測試 <時間>」資料夾裡，結束時會實際刪除；圖片檔的檢查會上傳測試用的小檔案，結束時也會刪掉。
 // 垃圾桶的檢查需要先執行 supabase/migrations/20261127000000_trash.sql（purged_at 欄位）。
 
 import { randomUUID } from 'node:crypto'
@@ -52,9 +52,10 @@ const b = createCloud(clientB, { pageSize: 2 })
 
 const created = [] // 結束時刪除（子項目先）
 const folderId = randomUUID()
-// 圖片檔清除的檢查用的測試檔（結束時若還在就刪掉）
+// 圖片檔的檢查用的測試檔（結束時若還在就刪掉）
 const fileId = randomUUID()
 let filePath = null
+const otherPaths = []
 const startedAt = new Date(Date.now() - 60_000).toISOString()
 
 try {
@@ -139,19 +140,28 @@ try {
   await a.updateIfVersion(three, { deleted_at: new Date().toISOString(), purged_at: null }, revived.version)
   check('還原後再刪除：回到垃圾桶', !!(await inTrash(a, three)))
 
-  // ── 資料夾裡的圖片：永久刪除後清掉 Storage 的檔案（removeImageIfUnused） ──
+  // ── 圖片檔上傳（uploadImage）：id 由前端產生，離線時插入的圖片同步時也用這個上傳 ──
   const uidA = (await clientA.auth.getSession()).data.session.user.id
   filePath = `${uidA}/${fileId}`
-  const upload = await clientA.storage
-    .from('images')
-    .upload(filePath, new Blob([new Uint8Array([82, 73, 70, 70])], { type: 'image/webp' }), { contentType: 'image/webp' })
-  check('上傳測試用的圖片檔', !upload.error, upload.error?.message)
   // 用 list 查 Storage 的資料表，不用 download：下載會經過 CDN 快取，刪除後一段時間內可能還拿得到
-  const fileExists = async () => {
-    const { data, error } = await clientA.storage.from('images').list(uidA, { search: fileId })
+  const fileInfo = async (id = fileId) => {
+    const { data, error } = await clientA.storage.from('images').list(uidA, { search: id })
     if (error) throw error
-    return data.some((file) => file.name === fileId)
+    return data.find((file) => file.name === id)
   }
+  const fileExists = async () => !!(await fileInfo())
+  const uploaded = await kindOf(a.uploadImage(fileId, new Blob([new Uint8Array([82, 73, 70, 70])], { type: 'image/webp' })))
+  check('上傳圖片檔：用前端產生的 id', uploaded === 'ok' && (await fileExists()), uploaded)
+  const resent = await kindOf(a.uploadImage(fileId, new Blob([new Uint8Array(8)], { type: 'image/webp' })))
+  check('同一個 id 再傳一次（回應遺失時重送）：當成已上傳，不報錯', resent === 'ok', resent)
+  const size = (await fileInfo())?.metadata?.size
+  check('重送不會覆蓋原本的檔案', size === 4, `大小 ${size}`)
+  const pngId = randomUUID()
+  otherPaths.push(`${uidA}/${pngId}`)
+  const png = await kindOf(a.uploadImage(pngId, new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })))
+  check('格式不對（PNG）：回報錯誤，不會當成已上傳', png === 'unknown' && !(await fileInfo(pngId)), png)
+
+  // ── 資料夾裡的圖片：永久刪除後清掉 Storage 的檔案（removeImageIfUnused） ──
 
   const imageOne = randomUUID()
   const imageTwo = randomUUID()
@@ -181,7 +191,7 @@ try {
   const { error } = await clientA.from('nodes').delete().in('id', created.filter((id) => id !== folderId))
   const { error: folderError } = await clientA.from('nodes').delete().eq('id', folderId)
   if (error || folderError) console.error('清除測試資料失敗：', error ?? folderError)
-  if (filePath) await clientA.storage.from('images').remove([filePath])
+  if (filePath) await clientA.storage.from('images').remove([filePath, ...otherPaths])
 }
 
 console.log(failures === 0 ? '\n全部通過' : `\n${failures} 項失敗`)

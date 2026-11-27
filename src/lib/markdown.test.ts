@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
+import { deviceImageUrl } from './deviceImages.ts'
 import { extractImagePaths, renderMarkdown, type ImageResolver, type RenderOptions } from './markdown.ts'
 import { strings } from '../strings.ts'
 
@@ -147,6 +148,18 @@ describe('資料夾裡的圖片：相對路徑在 DOMPurify 之前換成網址',
     const img = render('![](架構圖.webp)').querySelector('img')
     expect(img?.className).toBe('img-missing')
     expect(img?.hasAttribute('src')).toBe(false)
+  })
+
+  it('blob: 網址只放行 App 為這台裝置上的圖片產生的；筆記裡寫的、其他 blob: 網址照樣移除', () => {
+    const url = deviceImageUrl(ID, new Blob(['webp'], { type: 'image/webp' }))
+    expect(url.startsWith('blob:')).toBe(true)
+    expect(render('![](a.webp)', { resolveImage: () => url }).querySelector('img')?.getAttribute('src')).toBe(url)
+    // 不是 App 產生的 blob: 網址（例如筆記裡直接寫的）
+    const other = `${url.slice(0, -4)}0000`
+    expect(render(`![](${other})`).querySelector('img')?.hasAttribute('src')).toBe(false)
+    expect(render('![](a.webp)', { resolveImage: () => other }).querySelector('img')?.hasAttribute('src')).toBe(false)
+    // 連結不放行（只有圖片）
+    expect(render(`[連結](${url})`).querySelector('a')?.hasAttribute('href')).toBe(false)
   })
 
   it('換上的網址如果是 javascript:，仍會被 DOMPurify 擋下', () => {

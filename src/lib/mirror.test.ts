@@ -15,6 +15,10 @@ let rows: Map<string, CloudRow>
 let online: boolean
 let holdPull: Promise<void> | null
 let clock: number
+/** 雲端收到的圖片檔 id */
+let uploaded: string[]
+/** 下一次上傳：檔案傳上去了，但回應遺失（丟出連線錯誤） */
+let dropUploadResponse: boolean
 
 const cloud: Cloud = {
   async pullSince(since) {
@@ -51,6 +55,14 @@ const cloud: Cloud = {
   },
   async purge() {
     return []
+  },
+  async uploadImage(fileId) {
+    if (!online) throw new RepoError('network', '無法連線')
+    uploaded.push(fileId)
+    if (dropUploadResponse) {
+      dropUploadResponse = false
+      throw new RepoError('network', '無法連線') // 檔案傳上去了，但回應遺失
+    }
   },
 }
 
@@ -110,6 +122,8 @@ beforeEach(() => {
   holdPull = null
   clock = Date.parse('2026-11-25T00:00:00Z')
   imageCalls = 0
+  uploaded = []
+  dropUploadResponse = false
   db = createDbHandle(`test-mirror-${++dbCount}`)
   mirror = makeMirror()
 })
@@ -148,13 +162,46 @@ describe('第一次同步', () => {
     expect(changed).toEqual([[id]])
   })
 
-  it('圖片只在連線且已登入時使用雲端', async () => {
+  it('圖片：連線時直接上傳；離線時存在這台裝置，恢復連線後同步上傳', async () => {
+    const webp = () => new Blob(['webp'], { type: 'image/webp' })
     await signInA()
-    await mirror.repo.getImageUrls([crypto.randomUUID()])
-    expect(imageCalls).toBe(1)
+    const direct = await mirror.repo.uploadImage(webp())
+    expect(uploaded).toEqual([direct])
+
     online = false
-    await expectRepoError(mirror.repo.uploadImage(new Blob()), 'offline')
+    const saved = await mirror.repo.uploadImage(webp())
+    const image = await mirror.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: saved })
+    expect(uploaded).toEqual([direct])
+    // 離線時：這台裝置上的有網址；雲端上的不列出，也不呼叫線上版
+    expect(Object.keys(await mirror.repo.getImageUrls([saved, direct]))).toEqual([saved])
+    expect(imageCalls).toBe(0)
+
+    online = true
+    await mirror.sync()
+    expect(uploaded).toEqual([direct, saved])
+    expect(rows.get(image.id)?.content).toBe(saved)
+    // 上傳後改用雲端的網址
+    await mirror.repo.getImageUrls([saved])
     expect(imageCalls).toBe(1)
+  })
+
+  it('連線時上傳但沒收到回應：用同一個 id 存在這台裝置，同步時重送同一個（雲端不會多一個檔案）', async () => {
+    await signInA()
+    dropUploadResponse = true
+    const fileId = await mirror.repo.uploadImage(new Blob(['webp'], { type: 'image/webp' }))
+    const image = await mirror.repo.createNode({ parentId: null, type: 'image', name: 'a.webp', content: fileId })
+    expect(uploaded).toEqual([fileId])
+    expect(rows.has(image.id)).toBe(false)
+    await mirror.sync()
+    expect(uploaded).toEqual([fileId, fileId])
+    expect(rows.get(image.id)?.content).toBe(fileId)
+  })
+
+  it('第一次同步完成前不能插入圖片（還沒有本機資料，圖片項目也建立不了）', async () => {
+    await mirror.load()
+    await mirror.activate(USER_A, 'a@example.com', true)
+    await expectRepoError(mirror.repo.uploadImage(new Blob(['webp'], { type: 'image/webp' })), 'offline')
+    expect(uploaded).toEqual([])
   })
 })
 

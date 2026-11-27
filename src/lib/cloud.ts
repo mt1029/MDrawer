@@ -51,9 +51,52 @@ export interface Cloud {
    * 用到同一個檔案時保留。回傳是否刪掉了
    */
   removeImageIfUnused(fileId: string): Promise<boolean>
+  /**
+   * 上傳圖片檔到 Storage 的「使用者 id/fileId」（id 由前端產生）。已經存在時當成成功：
+   * 之前上傳成功但沒收到回應，重送時不會失敗（id 不重複使用，內容一定相同）
+   */
+  uploadImage(fileId: string, image: Blob): Promise<void>
 }
 
 const IMAGE_BUCKET = 'images'
+
+/** Storage 回傳的錯誤（StorageApiError 的欄位；斷線時沒有 status） */
+interface StorageErrorLike {
+  message: string
+  status?: number
+  statusCode?: string
+  code?: string
+}
+
+/** 上傳時檔案已經存在（409） */
+function isDuplicateFile(error: StorageErrorLike): boolean {
+  return (
+    error.status === 409 ||
+    error.statusCode === '409' ||
+    error.code === 'ResourceAlreadyExists' ||
+    /already exists/i.test(error.message)
+  )
+}
+
+/** 把上傳圖片的錯誤轉成 RepoError（訊息可直接顯示） */
+export function toUploadError(error: StorageErrorLike): RepoError {
+  const message = error.message.toLowerCase()
+  const status = error.status ?? Number(error.statusCode)
+  if (!status) return new RepoError('network', strings.errors.images.uploadNetwork)
+  if (status === 413 || message.includes('size')) {
+    return new RepoError('unknown', strings.errors.images.tooLarge)
+  }
+  if (status === 415 || message.includes('mime')) {
+    return new RepoError('unknown', strings.errors.images.badFormat)
+  }
+  if (message.includes('bucket not found')) {
+    return new RepoError('unknown', strings.errors.images.noBucket)
+  }
+  if (status === 403 || message.includes('row-level security') || message.includes('unauthorized')) {
+    return new RepoError('unknown', strings.errors.images.noPermission)
+  }
+  return new RepoError('unknown', strings.errors.images.uploadFailed(error.message))
+}
 
 const SYNC_COLUMNS = 'id, parent_id, type, name, content, version, created_at, updated_at, deleted_at'
 const TRASH_COLUMNS = 'id, parent_id, type, name, version, created_at, updated_at, deleted_at'
@@ -198,6 +241,20 @@ export function createCloud(client: SupabaseClient, options: { pageSize?: number
       const removed = await client.storage.from(IMAGE_BUCKET).remove([`${userId}/${fileId}`])
       if (removed.error) throw new RepoError('network', strings.errors.network)
       return removed.data.length > 0
+    },
+
+    async uploadImage(fileId, image) {
+      if (!IMAGE_FILE_ID.test(fileId)) throw new RepoError('unknown', strings.errors.images.invalidFile)
+      const { data } = await client.auth.getSession()
+      const userId = data.session?.user.id
+      if (!userId) throw new RepoError('unknown', strings.errors.sessionExpired)
+      const { error } = await client.storage.from(IMAGE_BUCKET).upload(`${userId}/${fileId}`, image, {
+        contentType: image.type,
+        // 圖片 id 不會重複使用，內容永遠不變，可以長期快取
+        cacheControl: '31536000',
+        upsert: false,
+      })
+      if (error && !isDuplicateFile(error as StorageErrorLike)) throw toUploadError(error as StorageErrorLike)
     },
   }
 }

@@ -51,11 +51,17 @@ export interface Repo {
    * 目標資料夾裡已經有同名的項目時，名稱加上「 (2)」。不能複製到自己或自己的子孫底下。
    */
   copyNode(id: string, targetParentId: string | null): Promise<NodeMeta>
-  /** 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片檔 id；接著用 createNode({ type: 'image', content: id }) 放進資料夾 */
+  /**
+   * 上傳一張已壓縮的圖片（WebP 或 JPEG），回傳圖片檔 id；接著用 createNode({ type: 'image', content: id }) 放進資料夾。
+   * 離線（或上傳時斷線）時先存在這台裝置，同步時才上傳
+   */
   uploadImage(image: Blob): Promise<string>
-  /** 取得圖片檔的短效網址（ids 是圖片檔 id）。找不到或沒有權限的圖片回傳 null */
+  /**
+   * 取得圖片檔的網址（ids 是圖片檔 id）：雲端的是短效網址，還在這台裝置的是 blob: 網址。
+   * 找不到或沒有權限的圖片回傳 null；離線時拿不到的（雲端的圖片）不列出
+   */
   getImageUrls(ids: string[]): Promise<Record<string, string | null>>
-  /** 下載圖片檔，匯出 ZIP 用。Blob 的 type 為 image/webp 或 image/jpeg */
+  /** 下載圖片檔，匯出 ZIP 用（還沒上傳的從這台裝置讀）。Blob 的 type 為 image/webp 或 image/jpeg */
   downloadImage(id: string): Promise<Blob>
   /** 垃圾桶的內容（需要連線）：同一次刪除的項目合成一筆，新刪除的在前 */
   listTrash(): Promise<TrashEntry[]>

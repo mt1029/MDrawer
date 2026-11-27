@@ -6,6 +6,7 @@
 import DOMPurify from 'dompurify'
 import MarkdownIt from 'markdown-it'
 import { strings } from '../strings.ts'
+import { isDeviceImageUrl } from './deviceImages.ts'
 import { decodeImagePath, isLocalImagePath } from './imagePaths.ts'
 
 const md = new MarkdownIt({
@@ -57,6 +58,12 @@ md.renderer.rules.image = (tokens, index, options, env, self) => {
   }
   return renderImage(tokens, index, options, env, self)
 }
+
+// 離線時插入、還沒上傳的圖片用 blob: 網址顯示（deviceImages.ts）。DOMPurify 預設會移除 blob:，
+// 這裡只放行 App 自己產生的那幾個；筆記裡寫的 blob: 網址（例如 ![](blob:…)）照樣被移除
+DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+  if (node.tagName === 'IMG' && data.attrName === 'src' && isDeviceImageUrl(data.attrValue)) data.forceKeepAttr = true
+})
 
 // 外部連結在新分頁開啟，並切斷新分頁對本頁的存取（window.opener）
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {

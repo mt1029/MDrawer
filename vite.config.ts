@@ -6,7 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa'
  * 打包時在 index.html 加上 Content-Security-Policy（spec 第 7 節）。
  * 開發模式不加，因為 Vite 的熱更新需要行內 script。
  * - script 只能來自自己的網域，就算 XSS 過濾有漏洞，注入的 script 也不會執行
- * - 圖片只能來自自己的網域與 Supabase（簽名網址）。不開放 blob:，因為預覽本來就不用它（DOMPurify 會移除）
+ * - 圖片只能來自自己的網域、Supabase（簽名網址）與 blob:。blob: 是離線時插入、還沒上傳的圖片（存在這台裝置），
+ *   blob: 網址只能由這個網站自己的 script 產生；預覽裡 DOMPurify 也只放行 App 產生的那幾個（deviceImages.ts）
  * - 只能連線到自己的網域與 Supabase
  */
 export function cspPlugin(supabaseUrl: string | undefined): Plugin {
@@ -24,7 +25,7 @@ export function cspPlugin(supabaseUrl: string | undefined): Plugin {
         "style-src 'self'",
         // markdown-it 的表格對齊會輸出 style="text-align:…"
         "style-src-attr 'unsafe-inline'",
-        `img-src 'self' ${supabase}`,
+        `img-src 'self' blob: ${supabase}`,
         `connect-src 'self' ${supabase}`,
         "object-src 'none'",
         "base-uri 'none'",

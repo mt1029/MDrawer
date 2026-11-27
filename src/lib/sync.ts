@@ -9,6 +9,9 @@
 //   - 同名：自動加「 (2)」重試
 //   - 推送成功但回應遺失：重送時發現雲端已經是本機的值，視為成功，不建立衝突副本
 //   - 上層資料夾已被其他裝置刪除：放到根目錄
+//
+// 離線時插入的圖片（spec 第 6 節）：推送前先上傳這台裝置上的圖片檔（localDb 的 files），
+// 檔案還沒上傳成功的圖片項目先不推送，其他裝置不會拿到「有項目、沒有檔案」的圖片。
 
 import type { Cloud, CloudRow, RowChanges } from './cloud.ts'
 import {
@@ -34,6 +37,9 @@ import { strings } from '../strings.ts'
 export const PULL_OVERLAP_MS = 10_000
 // 撞名、版本不符時重試的次數上限
 const MAX_ATTEMPTS = 10
+// 沒有項目用到的圖片檔（上傳前就刪掉了），存進來超過這麼久才清掉：
+// 剛存好、還沒建立圖片項目的（插入圖片的途中）不能清
+export const UNUSED_FILE_MS = 24 * 60 * 60 * 1000
 
 export interface SyncReport {
   /** 推送成功的項目數 */
@@ -76,6 +82,7 @@ export async function syncOnce(handle: DbHandle, cloud: Cloud, options: SyncOpti
     folders: new Map(),
   }
   try {
+    await uploadFiles(ctx)
     await push(ctx)
     await pull(ctx)
     // 有變動時才檢查樹狀結構（要讀出全部項目）
@@ -130,6 +137,7 @@ async function push(ctx: Context) {
     // 每次重新讀取：前面的項目推送期間，這筆可能又被改過
     const change = await ctx.db.get('pending', id)
     if (!change) continue
+    if (change.op === 'create' && (await waitingForFile(ctx, id))) continue
     try {
       if (change.op === 'create') await pushCreate(ctx, change)
       else if (change.op === 'update') await pushUpdate(ctx, change)
@@ -142,6 +150,50 @@ async function push(ctx: Context) {
       await markFailed(ctx, change, message)
     }
   }
+}
+
+// ── 離線時插入的圖片檔 ──────────────────────────────────────────
+
+/**
+ * 上傳這台裝置上的圖片檔，成功後從本機刪掉。上傳失敗（斷線以外）時，用到它的圖片項目記為推送失敗，
+ * 下次同步再試；斷線就中止這一輪。沒有項目用到的（上傳前就刪掉了）不上傳，過一段時間後清掉
+ */
+async function uploadFiles(ctx: Context) {
+  const files = await ctx.db.getAll('files')
+  if (files.length === 0) return
+  // 圖片檔 id → 用到它的圖片項目（複製的圖片共用同一個檔案）
+  const users = new Map<string, string[]>()
+  for (const node of await ctx.db.getAll('nodes')) {
+    if (node.type !== 'image' || !node.content) continue
+    users.set(node.content, [...(users.get(node.content) ?? []), node.id])
+  }
+  for (const file of files) {
+    const nodeIds = users.get(file.id) ?? []
+    if (nodeIds.length === 0) {
+      if (ctx.now().getTime() - Date.parse(file.savedAt) > UNUSED_FILE_MS) await removeFile(ctx, file.id)
+      continue
+    }
+    try {
+      await ctx.cloud.uploadImage(file.id, file.blob)
+    } catch (err) {
+      if (isNetwork(err)) throw err
+      const message = err instanceof RepoError ? err.message : strings.errors.sync.unexpected
+      for (const id of nodeIds) ctx.report.failed.push({ id, message })
+      continue
+    }
+    await removeFile(ctx, file.id)
+  }
+}
+
+async function removeFile(ctx: Context, fileId: string) {
+  if (!ctx.stillValid()) throw new Cancelled()
+  await ctx.db.delete('files', fileId)
+}
+
+/** 圖片檔還在這台裝置（還沒上傳成功）的圖片項目：先不推送 */
+async function waitingForFile(ctx: Context, id: string): Promise<boolean> {
+  const node = await ctx.db.get('nodes', id)
+  return node?.type === 'image' && !!node.content && (await ctx.db.getKey('files', node.content)) !== undefined
 }
 
 /** 雲端上這個 id 是否為可以放東西的資料夾（存在、未刪除） */

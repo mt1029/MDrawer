@@ -3,12 +3,13 @@
 //   nodes    每個未刪除項目在這台裝置上目前的樣子（包含還沒同步的修改）
 //   pending  待同步佇列：每個項目一筆，記錄要新增、改了哪些欄位或要刪除，以及修改前的雲端版本
 //   meta     owner：副本屬於哪個帳號；cursor：已經拉取到雲端的哪個時間
+//   files    離線時插入的圖片檔（還沒上傳）：同步時先上傳，成功後刪掉
 
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb'
 import { conflictCopyName, numberedName, type NodeMeta, type TreeNode } from './nodes.ts'
 
 export const DB_NAME = 'mdrawer'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 // IndexedDB 的索引不收 null，根目錄的項目改用這個值
 export const ROOT_KEY = 'root'
@@ -61,10 +62,24 @@ export interface PendingChange {
   deletedAt?: string
 }
 
+/**
+ * 還沒上傳的圖片檔（離線、或上傳時斷線）。圖片項目的 content 就是這個 id，
+ * 同步時上傳到 Storage 的「使用者 id/這個 id」，項目要等檔案上傳成功才推送
+ */
+export interface LocalFile {
+  /** 圖片檔 id（uuid） */
+  id: string
+  /** 已壓縮的圖片（WebP 或 JPEG） */
+  blob: Blob
+  /** 存進來的時間（這台裝置的時間）。沒有項目用到的檔案，過一段時間才清掉 */
+  savedAt: string
+}
+
 interface Schema extends DBSchema {
   nodes: { key: string; value: LocalNode; indexes: { by_parent: string } }
   pending: { key: string; value: PendingChange }
   meta: { key: string; value: LocalOwner | string }
+  files: { key: string; value: LocalFile }
 }
 
 export type LocalDb = IDBPDatabase<Schema>
@@ -86,6 +101,8 @@ export function createDbHandle(name = DB_NAME): DbHandle {
             database.createObjectStore('meta')
           }
           if (oldVersion < 2) database.createObjectStore('pending', { keyPath: 'id' })
+          // 離線插入的圖片（版本 3）
+          if (oldVersion < 3) database.createObjectStore('files', { keyPath: 'id' })
         },
         // 其他分頁載入了新版、要升級資料庫時先關閉，避免卡住對方
         blocking(_current, _blocked, event) {
@@ -136,13 +153,14 @@ export async function countPending(db: LocalDb): Promise<number> {
   return db.count('pending')
 }
 
-/** 清空本機副本與待同步佇列（登出、換帳號時） */
+/** 清空本機副本、待同步佇列與還沒上傳的圖片（登出、換帳號時） */
 export async function clearAll(db: LocalDb): Promise<void> {
-  const tx = db.transaction(['nodes', 'pending', 'meta'], 'readwrite')
+  const tx = db.transaction(['nodes', 'pending', 'meta', 'files'], 'readwrite')
   await Promise.all([
     tx.objectStore('nodes').clear(),
     tx.objectStore('pending').clear(),
     tx.objectStore('meta').clear(),
+    tx.objectStore('files').clear(),
     tx.done,
   ])
 }

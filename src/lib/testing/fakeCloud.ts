@@ -8,6 +8,8 @@ export function fakeCloud() {
   const rows = new Map<string, CloudRow>()
   /** 永久刪除的列（雲端的 purged_at 有值；CloudRow 不含這個欄位，另外記） */
   const purged = new Set<string>()
+  /** Storage 裡的圖片檔：id → 檔案 */
+  const files = new Map<string, Blob>()
   let clock = Date.parse('2026-11-25T00:00:00Z')
   const stamp = () => new Date((clock += 1000)).toISOString()
   const state = {
@@ -20,6 +22,10 @@ export function fakeCloud() {
     beforeWrite: undefined as undefined | (() => Promise<void>),
     /** Storage 裡被刪掉的圖片檔 id */
     removedFiles: [] as string[],
+    /** 上傳圖片檔的紀錄（id，重送的也算） */
+    uploads: [] as string[],
+    /** 上傳圖片檔一律失敗（斷線以外的錯誤，例如格式不對） */
+    failUploads: false,
   }
   const clone = (row: CloudRow): CloudRow => ({ ...row })
   const check = () => {
@@ -117,11 +123,23 @@ export function fakeCloud() {
       const used = [...rows.values()].some((row) => !purged.has(row.id) && row.type === 'image' && row.content === fileId)
       if (used) return false
       state.removedFiles.push(fileId)
+      files.delete(fileId)
       return true
+    },
+    // 已經存在時當成成功（跟 cloud.ts 一樣）；dropResponses 時檔案存進去了，但回應遺失
+    async uploadImage(fileId, image) {
+      check()
+      if (state.failUploads) throw new RepoError('unknown', '僅支援 WebP、JPEG 格式的圖片。')
+      state.uploads.push(fileId)
+      if (!files.has(fileId)) files.set(fileId, image)
+      if (state.dropResponses > 0) {
+        state.dropResponses--
+        throw new RepoError('network', '無法連線到伺服器，故沒有上傳圖片。')
+      }
     },
   }
 
   /** 雲端上未刪除、名稱相符的列 */
   const live = (name: string) => [...rows.values()].find((row) => row.name === name && !row.deleted_at)
-  return { cloud, rows, purged, state, stamp, live }
+  return { cloud, rows, purged, files, state, stamp, live }
 }

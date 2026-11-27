@@ -15,7 +15,7 @@ import { strings } from '../strings.ts'
 const file = (path: string, text = '', type = ''): ImportFile => ({ path, file: new Blob([text], { type }) })
 
 let dbCount = 0
-function setup(cloud = true) {
+function setup() {
   const repo = createLocalRepo(createDbHandle(`import-test-${++dbCount}`))
   const compressed: string[] = []
   const progress: [number, number][] = []
@@ -30,7 +30,6 @@ function setup(cloud = true) {
       if ((await blob.text()) === '壞掉') throw new ImageError('無法讀取圖片')
       return { blob: new Blob(['webp'], { type: 'image/webp' }), format: 'image/webp' }
     },
-    cloud,
     onProgress: (done, total) => progress.push([done, total]),
   }
   return { repo, deps, compressed, progress }
@@ -76,7 +75,7 @@ describe('runImport', () => {
       // 「課程」建立為「課程 (2)」
       首頁: '![](<課程 (2)/a.webp>)',
     })
-    expect(result).toMatchObject({ folders: 2, notes: 2, images: 2, skipped: 1, offlineImages: 0, failed: [] })
+    expect(result).toMatchObject({ folders: 2, notes: 2, images: 2, skipped: 1, failed: [] })
     expect(result.created.map((node) => node.name)).toEqual(['課程 (2)', '首頁'])
     // ZIP 裡的檔案沒有類型，依副檔名補上
     expect(compressed).toEqual(['image/png', 'image/jpeg'])
@@ -89,20 +88,6 @@ describe('runImport', () => {
     const result = await runImport(planImport([file('a.md', '內容')]), target.id, deps)
     expect(await tree(repo)).toEqual({ '匯入/': 'folder', '匯入/a': '內容' })
     expect(result.created.map((node) => node.parent_id)).toEqual([target.id])
-  })
-
-  it('離線時圖片略過，筆記、資料夾照樣匯入，連結不改', async () => {
-    const { repo, deps, compressed, progress } = setup(false)
-    const result = await runImport(planImport(files()), null, deps)
-    expect(await tree(repo)).toEqual({
-      '課程/': 'folder',
-      '課程/第一週/': 'folder',
-      '課程/第一週/筆記': '![](../a.png)\n![](../a.jpg)',
-      首頁: '![](課程/a.png)',
-    })
-    expect(result).toMatchObject({ folders: 2, notes: 2, images: 0, offlineImages: 2, failed: [] })
-    expect(compressed).toEqual([])
-    expect(progress.at(-1)).toEqual([4, 4])
   })
 
   it('一張圖片失敗不影響其他的，指到它的連結不改', async () => {

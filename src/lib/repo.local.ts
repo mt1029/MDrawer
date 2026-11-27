@@ -4,7 +4,12 @@
 //
 // version、created_at、updated_at 不會送到資料庫（CLAUDE.md 規則）。本機新增的項目 version 為 0，
 // 時間只用來在這台裝置上顯示，推送後換成資料庫寫入的值。
+//
+// 圖片檔：離線時存在這台裝置（files），同步時才上傳（sync.ts）。已經在雲端的圖片要連線才能顯示，
+// 由 mirror.ts 改用線上版。
 
+import { deviceImageUrl } from './deviceImages.ts'
+import { MAX_IMAGE_BYTES } from './image.ts'
 import {
   ROOT_KEY,
   addConflictCopy,
@@ -34,6 +39,11 @@ import {
 import type { Repo } from './repo.ts'
 import { strings } from '../strings.ts'
 
+/** 本機版的 uploadImage 可以指定圖片檔 id（mirror.ts 上傳時斷線，改存這台裝置時用同一個 id） */
+export interface LocalRepo extends Repo {
+  uploadImage(image: Blob, fileId?: string): Promise<string>
+}
+
 export interface LocalRepoOptions {
   /** 每次寫入本機之後呼叫（排程推送、更新待同步數量） */
   onWrite?: () => void
@@ -62,7 +72,25 @@ function offline(message: string): Promise<never> {
   return Promise.reject(new RepoError('offline', message))
 }
 
-export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): Repo {
+/** 存不進 IndexedDB 的原因：空間不足，或不能用本機儲存 */
+function storageError(err: unknown): RepoError {
+  const name = err instanceof DOMException ? err.name : ''
+  return new RepoError(
+    'unknown',
+    name === 'QuotaExceededError' ? strings.errors.images.noSpace : strings.errors.sync.storageUnavailable,
+  )
+}
+
+// 向瀏覽器申請持久儲存（不會在空間不足時被自動清掉），第一次把圖片存在這台裝置時申請一次。
+// 結果由瀏覽器決定（Firefox 會詢問使用者），失敗也不影響存檔
+let persistRequested = false
+function requestPersistentStorage() {
+  if (persistRequested) return
+  persistRequested = true
+  void navigator.storage?.persist?.().catch(() => false)
+}
+
+export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): LocalRepo {
   const now = options.now ?? (() => new Date())
 
   /** 在同一個交易裡檢查並寫入；檢查失敗就放棄整個交易，不會留下寫一半的資料 */
@@ -285,10 +313,40 @@ export function createLocalRepo(db: DbHandle, options: LocalRepoOptions = {}): R
       })
     },
 
-    // 圖片只存在雲端：連線時由 mirror.ts 改用線上版，這裡只處理離線
-    uploadImage: () => offline(strings.errors.images.offlineUpload),
-    getImageUrls: () => offline(strings.errors.images.offlineLoad),
-    downloadImage: () => offline(strings.errors.images.offlineDownload),
+    /**
+     * 把圖片檔存在這台裝置，同步時再上傳（離線、或連線時上傳失敗）。fileId 不傳時產生新的；
+     * mirror.ts 上傳時斷線，會用同一個 id 存（之前其實上傳成功的話，同步時當成已上傳）
+     */
+    async uploadImage(image, fileId = crypto.randomUUID()) {
+      // 先在這裡擋下 Storage 不收的檔案，不然同步時才失敗、一直留在這台裝置
+      if (image.type !== 'image/webp' && image.type !== 'image/jpeg') throw new RepoError('unknown', strings.errors.images.badFormat)
+      if (image.size > MAX_IMAGE_BYTES) throw new RepoError('unknown', strings.errors.images.tooLarge)
+      try {
+        await (await db()).put('files', { id: fileId, blob: image, savedAt: now().toISOString() })
+      } catch (err) {
+        throw storageError(err)
+      }
+      requestPersistentStorage()
+      options.onWrite?.()
+      return fileId
+    },
+
+    // 只有還在這台裝置（還沒上傳）的圖片；其他的不列出（undefined：要連線才拿得到）
+    async getImageUrls(ids) {
+      const database = await db()
+      const result: Record<string, string> = {}
+      for (const id of new Set(ids)) {
+        const file = await database.get('files', id)
+        if (file) result[id] = deviceImageUrl(id, file.blob)
+      }
+      return result
+    },
+
+    async downloadImage(id) {
+      const file = await (await db()).get('files', id)
+      return file ? file.blob : offline(strings.errors.images.offlineDownload)
+    },
+
     // 垃圾桶的資料在雲端（這台裝置不保留刪除的項目）：連線時由 mirror.ts 處理
     listTrash: () => offline(strings.trash.offline),
     restoreTrash: () => offline(strings.trash.offline),

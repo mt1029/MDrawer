@@ -3,9 +3,11 @@
 //   - 同步時機：App 開啟、恢復連線、每 30 秒，以及本機修改後 2 秒（讓另一台裝置早點看到）
 //   - 本機資料屬於哪個帳號：換帳號時清除；自己按登出時清除（有未同步的修改由畫面先警告）；
 //     被強制登出（例如在別處改了密碼）時若還有未同步的修改，先保留，等同一個帳號重新登入
-// 圖片只存在雲端，連線且已登入時才能上傳與顯示。UI 一樣只透過 repo.ts 使用。
+// 圖片：連線且已登入時直接上傳；離線（或上傳時斷線）時先存在這台裝置，同步時才上傳（sync.ts）。
+// 顯示時還在這台裝置的用本機的檔案，其他的要連線取得網址。UI 一樣只透過 repo.ts 使用。
 
 import type { Cloud } from './cloud.ts'
+import { revokeDeviceImageUrls } from './deviceImages.ts'
 import { clearAll, countPending, getOwner, type DbHandle, type LocalOwner } from './localDb.ts'
 import { RepoError } from './nodes.ts'
 import { createLocalRepo } from './repo.local.ts'
@@ -82,6 +84,8 @@ function browserLock<T>(task: () => Promise<T>): Promise<T> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
   return locks ? locks.request('mdrawer-sync', task) : task()
 }
+
+const isNetwork = (err: unknown) => err instanceof RepoError && err.kind === 'network'
 
 function errorMessage(err: unknown): string {
   if (err instanceof RepoError) {
@@ -256,6 +260,7 @@ export function createMirror(options: MirrorOptions): Mirror {
     stopTimers()
     activating = Promise.resolve()
     setState({ owner: null, activeUserId: null, syncing: false, syncError: null, pendingCount: 0, conflicts: [], failures: [] })
+    revokeDeviceImageUrls()
     await clearAll(await db())
   }
 
@@ -300,10 +305,37 @@ export function createMirror(options: MirrorOptions): Mirror {
     moveNode: guarded(local.moveNode),
     deleteNode: guarded(local.deleteNode),
     copyNode: guarded(local.copyNode),
-    // 圖片只存在雲端，連線且已登入時才能用
-    uploadImage: (image) => (canUseCloud() ? online.uploadImage(image) : local.uploadImage(image)),
-    getImageUrls: (ids) => (canUseCloud() ? online.getImageUrls(ids) : local.getImageUrls(ids)),
-    downloadImage: (id) => (canUseCloud() ? online.downloadImage(id) : local.downloadImage(id)),
+    // 連線時直接上傳；離線或上傳時斷線，存在這台裝置等同步上傳（接著建立的圖片項目也等檔案上傳後才推送）
+    uploadImage: guarded(async (image) => {
+      if (!canUseCloud()) return local.uploadImage(image)
+      const fileId = crypto.randomUUID()
+      try {
+        await cloud.uploadImage(fileId, image)
+        return fileId
+      } catch (err) {
+        if (!isNetwork(err)) throw err
+        // 同一個 id：其實已經上傳成功、只是沒收到回應的話，同步時會當成已上傳
+        return local.uploadImage(image, fileId)
+      }
+    }),
+    // 還在這台裝置的用本機的檔案；其他的連線時取得雲端的網址，離線時不列出
+    async getImageUrls(ids) {
+      const onDevice: Record<string, string | null> = await local.getImageUrls(ids).catch(() => ({}))
+      const rest = ids.filter((id) => !(id in onDevice))
+      if (rest.length === 0 || !canUseCloud()) return onDevice
+      try {
+        return { ...onDevice, ...(await online.getImageUrls(rest)) }
+      } catch (err) {
+        // 連不到雲端：至少顯示這台裝置上的
+        if (Object.keys(onDevice).length > 0) return onDevice
+        throw err
+      }
+    },
+    async downloadImage(id) {
+      const onDevice = await local.downloadImage(id).catch(() => null)
+      if (onDevice) return onDevice
+      return canUseCloud() ? online.downloadImage(id) : local.downloadImage(id)
+    },
     listTrash: withCloud(async () => {
       // 先推送這台裝置剛刪除的項目，垃圾桶才看得到
       await sync()

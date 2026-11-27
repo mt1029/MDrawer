@@ -171,8 +171,6 @@ export interface ImportDeps {
   repo: Pick<Repo, 'createNode' | 'uploadImage'>
   /** 壓縮圖片（compressImage；測試時換成假的） */
   compress: (file: Blob) => Promise<Pick<CompressedImage, 'blob' | 'format'>>
-  /** 可以上傳圖片（連線且已登入） */
-  cloud: boolean
   /** 每建立（或失敗）一個項目呼叫一次 */
   onProgress?: (done: number, total: number) => void
 }
@@ -183,8 +181,6 @@ export interface ImportResult {
   images: number
   /** 不支援的檔案 */
   skipped: number
-  /** 離線所以沒有匯入的圖片 */
-  offlineImages: number
   failed: ImportFailure[]
   /** 直接放在匯入位置的項目（匯入後選取） */
   created: NodeMeta[]
@@ -203,14 +199,13 @@ export async function runImport(plan: ImportPlan, targetId: string | null, deps:
     notes: 0,
     images: 0,
     skipped: plan.skipped.length,
-    offlineImages: 0,
     failed: [],
     created: [],
   }
   // 原本的路徑 → 建立的資料夾 id；原本的路徑 → 建立的名稱（資料夾與圖片，改寫連結用）
   const folderIds = new Map<string, string>()
   const names = new Map<string, string>()
-  const total = plan.folders.length + plan.notes.length + (deps.cloud ? plan.images.length : 0)
+  const total = plan.folders.length + plan.notes.length + plan.images.length
   let done = 0
 
   /** 建立一個項目：上層資料夾沒有建立時不建立；失敗時記下原因 */
@@ -241,11 +236,8 @@ export async function runImport(plan: ImportPlan, targetId: string | null, deps:
     result.folders++
   }
 
+  // 離線時圖片先存在這台裝置，同步時才上傳（repo.uploadImage）
   for (const image of plan.images) {
-    if (!deps.cloud) {
-      result.offlineImages++
-      continue
-    }
     const node = await create(image, async (parentId) => {
       // ZIP 裡的檔案沒有類型，依副檔名補上（壓縮前會檢查是不是圖片）
       const type = image.file.type.startsWith('image/') ? image.file.type : (imageTypeOf(image.name) ?? '')

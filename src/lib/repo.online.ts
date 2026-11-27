@@ -246,36 +246,11 @@ async function currentUserId(): Promise<string> {
   return id
 }
 
-function toUploadError(error: { message: string; status?: number; statusCode?: string }): RepoError {
-  const message = error.message.toLowerCase()
-  const status = error.status ?? Number(error.statusCode)
-  if (!status) return new RepoError('network', strings.errors.images.uploadNetwork)
-  if (status === 413 || message.includes('size')) {
-    return new RepoError('unknown', strings.errors.images.tooLarge)
-  }
-  if (status === 415 || message.includes('mime')) {
-    return new RepoError('unknown', strings.errors.images.badFormat)
-  }
-  if (message.includes('bucket not found')) {
-    return new RepoError('unknown', strings.errors.images.noBucket)
-  }
-  if (status === 403 || message.includes('row-level security') || message.includes('unauthorized')) {
-    return new RepoError('unknown', strings.errors.images.noPermission)
-  }
-  return new RepoError('unknown', strings.errors.images.uploadFailed(error.message))
-}
-
+/** 上傳圖片（id 由前端產生，Storage 的部分在 cloud.ts，同步上傳離線存的圖片也用同一個） */
 async function uploadImage(image: Blob): Promise<string> {
   if (!navigator.onLine) throw new RepoError('network', strings.errors.images.offlineUpload)
-  const userId = await currentUserId()
   const id = crypto.randomUUID()
-  const { error } = await supabase.storage.from(IMAGE_BUCKET).upload(`${userId}/${id}`, image, {
-    contentType: image.type,
-    // 圖片 id 不會重複使用，內容永遠不變，可以長期快取
-    cacheControl: '31536000',
-    upsert: false,
-  })
-  if (error) throw toUploadError(error)
+  await cloud.uploadImage(id, image)
   return id
 }
 

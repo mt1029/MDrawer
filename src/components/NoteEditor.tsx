@@ -62,7 +62,7 @@ export interface Reveal {
 
 interface Props {
   noteId: string
-  /** 可以連到雲端（連線且已登入）：才能插入、顯示圖片。文字隨時都能編輯，先存在這台裝置 */
+  /** 可以連到雲端（連線且已登入）：才能顯示雲端上的圖片。文字與插入的圖片隨時都能編輯，先存在這台裝置 */
   cloud: boolean
   /** 儲存後回傳最新的資料 */
   onSaved: (node: NodeMeta) => void
@@ -279,7 +279,7 @@ export default function NoteEditor({
   }
 
   /**
-   * 壓縮 → 上傳 → 放進筆記所在的資料夾（撞名時自動加編號）→ 把佔位文字換成 ![](名稱)。
+   * 壓縮 → 上傳（離線時先存在這台裝置，連線後同步上傳）→ 放進筆記所在的資料夾（撞名時自動加編號）→ 把佔位文字換成 ![](名稱)。
    * 貼上的截圖用時間當名稱（截圖-20261126-153012.webp），拖進來或選的檔案用原本的檔名
    */
   async function insertImages(files: File[], { pasted = false } = {}): Promise<boolean> {
@@ -290,7 +290,8 @@ export default function NoteEditor({
       setImageStatus({ kind: 'busy', text: strings.editor.image.compressing(formatBytes(file.size)) })
       try {
         const image = await compressImage(file)
-        setImageStatus({ kind: 'busy', text: strings.editor.image.uploading(formatBytes(image.blob.size)) })
+        const size = formatBytes(image.blob.size)
+        setImageStatus({ kind: 'busy', text: cloud ? strings.editor.image.uploading(size) : strings.editor.image.saving(size) })
         const fileId = await repo.uploadImage(image.blob)
         const name = imageFileName(pasted ? strings.editor.image.pastedName(timeStamp(new Date())) : file.name, image.format)
         const node = await repo.createNode({ parentId: folderId, type: 'image', name, content: fileId, rename: true })
@@ -299,7 +300,7 @@ export default function NoteEditor({
         if (!inserted) allInserted = false
         setImageStatus(
           inserted
-            ? { kind: 'done', text: strings.editor.image.inserted }
+            ? { kind: 'done', text: cloud ? strings.editor.image.inserted : strings.editor.image.savedOffline }
             : { kind: 'error', text: strings.editor.image.placeholderRemoved },
         )
       } catch (err) {
@@ -319,11 +320,6 @@ export default function NoteEditor({
     // 沒有圖片，或同時有文字（例如從網頁複製一段圖文）時，照一般貼上處理
     if (images.length === 0 || event.clipboardData.getData('text/plain')) return
     event.preventDefault()
-    // 圖片要上傳到雲端，離線時無法插入（spec：離線貼圖列在加分層）
-    if (!cloud) {
-      setImageStatus({ kind: 'error', text: strings.editor.image.offlinePaste })
-      return
-    }
     void insertImages(images, { pasted: true })
   }
 
@@ -356,10 +352,6 @@ export default function NoteEditor({
     const skipped = files.length - images.length
     if (images.length === 0) {
       setImageStatus({ kind: 'error', text: strings.editor.image.notImage })
-      return
-    }
-    if (!cloud) {
-      setImageStatus({ kind: 'error', text: strings.editor.image.offlinePaste })
       return
     }
     // 圖片插入完才說有幾個檔案沒插入，不然訊息會被插入的進度蓋掉
@@ -446,8 +438,7 @@ export default function NoteEditor({
       <div className="editor-actions">
         <IconButton
           icon={IconPhotoPlus}
-          label={cloud ? strings.editor.insertImage : strings.editor.insertImageOffline}
-          disabled={!cloud}
+          label={strings.editor.insertImage}
           onClick={() => fileInput.current?.click()}
         />
         <IconButton
