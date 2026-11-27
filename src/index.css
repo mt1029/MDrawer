@@ -458,10 +458,12 @@ button.link {
   padding: 0 0.25rem 0 0.75rem;
 }
 
+/* 側欄的標題全大寫只是外觀：文字本身是一般大小寫，提示、螢幕閱讀器才不會跟著全大寫（或一個字母一個字母念） */
 .panel-title {
   font-size: 0.8125rem;
   font-weight: 500;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 

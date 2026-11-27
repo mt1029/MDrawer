@@ -115,7 +115,8 @@ export const strings = {
     /** 新增到哪裡、右鍵選單標題用的「最上層」 */
     topLevel: '最上層',
     activityBar: '面板',
-    explorer: 'EXPLORER',
+    /** 側欄的標題（畫面上由 CSS 轉成全大寫）、左側圖示的提示 */
+    explorer: 'Explorer',
     tree: '資料夾樹',
     newNoteIn: (place: string) => `新增筆記到${place}`,
     newFolderIn: (place: string) => `新增資料夾到${place}`,
@@ -191,7 +192,8 @@ export const strings = {
 
   /** 搜尋面板（SearchPanel） */
   search: {
-    title: 'SEARCH',
+    /** 側欄的標題（畫面上由 CSS 轉成全大寫）、小螢幕切換圖示的提示 */
+    title: 'Search',
     /** 縮短時接在後面的符號：很長的行只顯示符合處附近、太長的資料夾路徑只留第一個字（例如 /o.../t.../） */
     ellipsis: '...',
     /** 左側圖示欄的搜尋圖示，游標停留時顯示；shortcut 是 ⇧⌘F 或 Ctrl+Shift+F */
@@ -214,7 +216,8 @@ export const strings = {
 
   /** 垃圾桶面板（TrashPanel、trash.ts）。只在連線時能用 */
   trash: {
-    title: 'TRASH',
+    /** 側欄的標題（畫面上由 CSS 轉成全大寫）、左側圖示的提示 */
+    title: 'Trash',
     list: '垃圾桶裡的項目',
     refresh: '重新整理',
     empty: '清空垃圾桶',
