@@ -221,11 +221,11 @@ export const strings = {
     loading: '正在讀取垃圾桶...',
     offline: '離線時無法使用垃圾桶，請連線後再試。',
     nothing: '垃圾桶是空的。',
-    hint: '在項目上按右鍵（觸控裝置長按）可以還原或永久刪除。',
+    hint: '在項目上點按右鍵可以還原或永久刪除。',
     /** 每一筆的第二行：原本的位置、刪除的時間；資料夾加上裡面一起刪除的項目數 */
     meta: (path: string, time: string, items: number) => [path, time, items > 0 ? `含 ${items} 個項目` : ''].filter(Boolean).join('・'),
     /** 給螢幕閱讀器 */
-    itemLabel: (name: string, path: string, time: string) => `${name}，原本在 ${path}，${time} 刪除`,
+    itemLabel: (name: string, path: string, time: string) => `${name}，於 ${path}，${time} 刪除`,
     menuLabel: (name: string) => `${quoted(name)}的操作`,
     /** 在多選的項目上按右鍵 */
     selectionLabel: (count: number) => `已選取 ${count} 筆`,
@@ -243,12 +243,12 @@ export const strings = {
     purgeItem: (name: string) => `${quoted(name)}會被永久刪除，無法復原。`,
     purgeFolder: (name: string, count: number) => `${quoted(name)}和裡面的 ${count} 個項目會被永久刪除，無法復原。`,
     /** 多選的好幾筆；count 包含資料夾裡一起刪除的項目 */
-    purgeManyBody: (count: number) => `選取的 ${count} 個項目（含資料夾裡的）會被永久刪除，無法復原。`,
+    purgeManyBody: (count: number) => `選取的 ${count} 個項目（包含資料夾內的項目）會被永久刪除，無法復原。`,
     emptyTitle: '清空垃圾桶？',
     emptyBody: (count: number) => `垃圾桶裡的 ${count} 個項目都會被永久刪除，無法復原。`,
     purged: (count: number) => `已永久刪除 ${count} 個項目。`,
     /** 列出垃圾桶之後，那一列被別台裝置還原、永久刪除或改過 */
-    changed: '垃圾桶的內容剛被其他裝置改過，請重新整理後再試。',
+    changed: '垃圾桶的內容在其他裝置被修改，請重新整理後再試。',
   },
 
   /** 上傳圖片到資料夾、選了圖片時右側的預覽（Workspace、ImageViewer） */
